@@ -161,6 +161,7 @@ final class StatusActions: NSObject {
     @objc func playPause() { MediaController.shared.run("playpause") }
     @objc func next()      { MediaController.shared.run("next") }
     @objc func prev()      { MediaController.shared.run("prev") }
+    @objc func togglePlayerPage() { MediaController.shared.run("togglePlayer") }
 
     @objc func showMain() {
         DispatchQueue.main.async {

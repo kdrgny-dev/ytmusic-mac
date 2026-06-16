@@ -87,6 +87,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ctrl.addItem(item("Previous Track", #selector(StatusActions.prev), target: StatusActions.shared,
                           key: String(UnicodeScalar(NSLeftArrowFunctionKey)!)))
         ctrl.addItem(.separator())
+        ctrl.addItem(item("Toggle Fullscreen Player", #selector(StatusActions.togglePlayerPage),
+                          target: StatusActions.shared, key: "f", mods: [.command]))
+        ctrl.addItem(.separator())
         ctrl.addItem(item("Focus Search", #selector(AppActions.focusSearch), target: AppActions.shared,
                           key: "k", mods: [.command]))
         ctrl.addItem(item("Reload", #selector(AppActions.reload), target: AppActions.shared,

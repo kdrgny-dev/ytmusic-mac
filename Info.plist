@@ -33,5 +33,7 @@
     </dict>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>LSMultipleInstancesProhibited</key>
+    <true/>
 </dict>
 </plist>

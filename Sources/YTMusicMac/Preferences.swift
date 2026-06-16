@@ -30,11 +30,44 @@ final class Preferences: ObservableObject {
         }
     }
 
+    @Published var zebraStriping: Bool {
+        didSet {
+            defaults.set(zebraStriping, forKey: Keys.zebraStriping)
+            FeatureBridge.shared.set("zebraStriping", enabled: zebraStriping)
+        }
+    }
+
+    @Published var theme: Theme {
+        didSet {
+            defaults.set(theme.rawValue, forKey: Keys.theme)
+            ThemeBridge.shared.apply(theme)
+        }
+    }
+
+    @Published var compactMode: Bool {
+        didSet {
+            defaults.set(compactMode, forKey: Keys.compactMode)
+            FeatureBridge.shared.set("compactMode", enabled: compactMode)
+        }
+    }
+
+    @Published var stackedHeader: Bool {
+        didSet {
+            defaults.set(stackedHeader, forKey: Keys.stackedHeader)
+            FeatureBridge.shared.set("stackedHeader", enabled: stackedHeader)
+        }
+    }
+
     private init() {
         self.notifyOnTrackChange = defaults.bool(forKey: Keys.notify)
         self.miniPlayerAlwaysOnTop = defaults.object(forKey: Keys.miniOnTop) as? Bool ?? true
         self.applyPlayerLayout = defaults.object(forKey: Keys.playerLayout) as? Bool ?? true
         self.hidePromos = defaults.object(forKey: Keys.hidePromos) as? Bool ?? true
+        self.zebraStriping = defaults.object(forKey: Keys.zebraStriping) as? Bool ?? true
+        self.compactMode = defaults.bool(forKey: Keys.compactMode)
+        self.stackedHeader = defaults.bool(forKey: Keys.stackedHeader)
+        let raw = defaults.string(forKey: Keys.theme) ?? Theme.default.rawValue
+        self.theme = Theme(rawValue: raw) ?? .default
     }
 
     private enum Keys {
@@ -42,6 +75,10 @@ final class Preferences: ObservableObject {
         static let miniOnTop = "pref.miniPlayerAlwaysOnTop"
         static let playerLayout = "pref.applyPlayerLayout"
         static let hidePromos = "pref.hidePromos"
+        static let zebraStriping = "pref.zebraStriping"
+        static let compactMode = "pref.compactMode"
+        static let stackedHeader = "pref.stackedHeader"
+        static let theme = "pref.theme"
     }
 }
 

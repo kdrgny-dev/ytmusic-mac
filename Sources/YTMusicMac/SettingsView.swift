@@ -8,7 +8,7 @@ struct SettingsView: View {
             generalTab.tabItem { Label("General", systemImage: "gear") }
             interfaceTab.tabItem { Label("Interface", systemImage: "rectangle.3.group") }
         }
-        .frame(width: 460, height: 260)
+        .frame(width: 520, height: 440)
     }
 
     private var generalTab: some View {
@@ -23,9 +23,22 @@ struct SettingsView: View {
 
     private var interfaceTab: some View {
         Form {
+            Section("Theme") {
+                Picker("Color theme", selection: $prefs.theme) {
+                    ForEach(Theme.allCases) { theme in
+                        Text(theme.displayName).tag(theme)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
             Section("YouTube Music tweaks") {
                 Toggle("Spotify-like player layout (info left, transport center)",
                        isOn: $prefs.applyPlayerLayout)
+                Toggle("Compact mode (narrow sidebar, tighter rows)",
+                       isOn: $prefs.compactMode)
+                Toggle("Stacked playlist header (Spotify-style)",
+                       isOn: $prefs.stackedHeader)
+                Toggle("Zebra striping on track lists", isOn: $prefs.zebraStriping)
                 Toggle("Hide Premium promo banners", isOn: $prefs.hidePromos)
             }
             Section {
