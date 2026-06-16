@@ -17,9 +17,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     private func build() {
+        // Plain titled window — NO fullSizeContentView, because YT Music's
+        // popup dialogs (edit playlist cover, etc.) need the top of the
+        // content area to be unobstructed by the title bar/traffic lights.
         let w = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -28,8 +31,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         w.minSize = NSSize(width: 800, height: 500)
         w.isReleasedWhenClosed = false
         w.delegate = self
-        w.setFrameAutosaveName(frameAutosaveName)
-        w.center()
+        // Match YT Music's --yt-spec-base-background (#030303) so resize and
+        // launch don't flash white before the page paints.
+        w.backgroundColor = NSColor(red: 0.012, green: 0.012, blue: 0.012, alpha: 1)
+        // Restore last frame if available; only center on first launch.
+        let restored = w.setFrameAutosaveName(frameAutosaveName)
+        if !restored { w.center() }
 
         // Host the singleton WebView directly as the window's content view.
         let webView = WebViewHolder.shared.obtain()

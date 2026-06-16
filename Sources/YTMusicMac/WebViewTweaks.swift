@@ -20,6 +20,13 @@ enum WebViewTweaks {
         callIntSetter(prefs, selectorName: "_setStorageBlockingPolicy:", value: 0)
     }
 
+    /// Stop WKWebView from painting its own (white) background before the
+    /// page paints. Lets the layer/window color show through, killing the
+    /// launch flash. Private SPI; no-op if the selector ever disappears.
+    static func setDrawsBackground(on webView: WKWebView, value: Bool) {
+        callBoolSetter(webView, selectorName: "_setDrawsBackground:", value: value)
+    }
+
     // MARK: - private runtime helpers
 
     private static func callBoolSetter(_ target: AnyObject, selectorName: String, value: Bool) {

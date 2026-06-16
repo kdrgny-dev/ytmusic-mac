@@ -78,6 +78,19 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
         }
+        // Layer-backed + dark base so resize feels snappy and pre-paint
+        // doesn't flash white. underPageBackgroundColor handles the area
+        // exposed during elastic scroll / window resize before YT's CSS paints.
+        webView.wantsLayer = true
+        let dark = NSColor(red: 0.012, green: 0.012, blue: 0.012, alpha: 1)
+        webView.layer?.backgroundColor = dark.cgColor
+        if #available(macOS 12.0, *) {
+            webView.underPageBackgroundColor = dark
+        }
+        // Private SPI: stop WKWebView from painting its own white background
+        // before the page loads. Same kind of private call we already use in
+        // WebViewTweaks; safe and reverts to no-op if missing.
+        WebViewTweaks.setDrawsBackground(on: webView, value: false)
         webView.load(URLRequest(url: URL(string: "https://music.youtube.com")!))
         return webView
     }
@@ -109,6 +122,10 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         let prefs = Preferences.shared
         FeatureBridge.shared.set("hidePromos", enabled: prefs.hidePromos)
         FeatureBridge.shared.set("playerLayout", enabled: prefs.applyPlayerLayout)
+        FeatureBridge.shared.set("zebraStriping", enabled: prefs.zebraStriping)
+        FeatureBridge.shared.set("compactMode", enabled: prefs.compactMode)
+        FeatureBridge.shared.set("stackedHeader", enabled: prefs.stackedHeader)
+        ThemeBridge.shared.apply(prefs.theme)
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -128,6 +145,21 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
             webView.load(URLRequest(url: url))
         }
         return nil
+    }
+
+    /// Explicit file picker handler so HTML5 `<input type="file">` (used when
+    /// uploading a custom playlist cover) actually shows an NSOpenPanel.
+    func webView(_ webView: WKWebView,
+                 runOpenPanelWith parameters: WKOpenPanelParameters,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping ([URL]?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.begin { response in
+            completionHandler(response == .OK ? panel.urls : nil)
+        }
     }
 
     // MARK: - public actions
