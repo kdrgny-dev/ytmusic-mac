@@ -125,6 +125,7 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         FeatureBridge.shared.set("zebraStriping", enabled: prefs.zebraStriping)
         FeatureBridge.shared.set("compactMode", enabled: prefs.compactMode)
         FeatureBridge.shared.set("stackedHeader", enabled: prefs.stackedHeader)
+        PrefBridge.shared.setAlwaysShuffle(prefs.alwaysShuffle)
         ThemeBridge.shared.apply(prefs.theme)
     }
 

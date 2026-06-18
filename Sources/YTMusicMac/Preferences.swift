@@ -58,6 +58,13 @@ final class Preferences: ObservableObject {
         }
     }
 
+    @Published var alwaysShuffle: Bool {
+        didSet {
+            defaults.set(alwaysShuffle, forKey: Keys.alwaysShuffle)
+            PrefBridge.shared.setAlwaysShuffle(alwaysShuffle)
+        }
+    }
+
     private init() {
         self.notifyOnTrackChange = defaults.bool(forKey: Keys.notify)
         self.miniPlayerAlwaysOnTop = defaults.object(forKey: Keys.miniOnTop) as? Bool ?? true
@@ -66,6 +73,7 @@ final class Preferences: ObservableObject {
         self.zebraStriping = defaults.object(forKey: Keys.zebraStriping) as? Bool ?? true
         self.compactMode = defaults.bool(forKey: Keys.compactMode)
         self.stackedHeader = defaults.bool(forKey: Keys.stackedHeader)
+        self.alwaysShuffle = defaults.object(forKey: Keys.alwaysShuffle) as? Bool ?? true
         let raw = defaults.string(forKey: Keys.theme) ?? Theme.default.rawValue
         self.theme = Theme(rawValue: raw) ?? .default
     }
@@ -79,6 +87,7 @@ final class Preferences: ObservableObject {
         static let compactMode = "pref.compactMode"
         static let stackedHeader = "pref.stackedHeader"
         static let theme = "pref.theme"
+        static let alwaysShuffle = "pref.alwaysShuffle"
     }
 }
 
@@ -89,6 +98,20 @@ final class FeatureBridge {
 
     func set(_ feature: String, enabled: Bool) {
         let js = "window.__ytmSetFeature && window.__ytmSetFeature('\(feature)', \(enabled))"
+        DispatchQueue.main.async {
+            WebViewHolder.shared.webView?.evaluateJavaScript(js, completionHandler: nil)
+        }
+    }
+}
+
+/// Bridge for runtime JS prefs (not CSS toggles) — currently just the
+/// shuffle-keeper. Lives here so all JS-side preferences are wired the
+/// same way.
+final class PrefBridge {
+    static let shared = PrefBridge()
+
+    func setAlwaysShuffle(_ on: Bool) {
+        let js = "window.__ytmSetAlwaysShuffle && window.__ytmSetAlwaysShuffle(\(on))"
         DispatchQueue.main.async {
             WebViewHolder.shared.webView?.evaluateJavaScript(js, completionHandler: nil)
         }

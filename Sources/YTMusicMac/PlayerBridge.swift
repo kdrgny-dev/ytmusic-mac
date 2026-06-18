@@ -429,9 +429,72 @@ enum PlayerBridge {
          'loadedmetadata', 'durationchange', 'ended'].forEach(function(ev) {
           v.addEventListener(ev, sendSoon);
         });
+        // Shuffle keeper: re-enable shuffle every time a new track starts
+        // unless the user explicitly disabled it recently (see ensureShuffle).
+        v.addEventListener('loadedmetadata', function() {
+          setTimeout(ensureShuffle, 400);
+        });
         sendSoon();
         return true;
       }
+
+      // ---------- Shuffle keeper ----------
+      // YT Music resets shuffle to OFF every time a new queue starts (e.g.
+      // user clicks a specific track in a playlist). This keeps it pinned ON
+      // by re-clicking the shuffle button on each track change, with a 30s
+      // grace window so manual "turn shuffle off" still works.
+      window.__ytmAlwaysShuffle = (typeof window.__ytmAlwaysShuffle === 'boolean')
+        ? window.__ytmAlwaysShuffle : true;
+      window.__ytmUserToggledShuffleAt = 0;
+
+      window.__ytmSetAlwaysShuffle = function(on) {
+        window.__ytmAlwaysShuffle = !!on;
+        if (on) setTimeout(ensureShuffle, 200);
+      };
+
+      function findShuffleBtn() {
+        return q('ytmusic-player-bar tp-yt-paper-icon-button.shuffle')
+            || q('ytmusic-player-bar yt-button-shape[aria-label*="shuffle" i] button')
+            || q('ytmusic-player-bar [aria-label*="shuffle" i]')
+            || q('ytmusic-player-bar [aria-label*="karıştır" i]')
+            || q('ytmusic-player-bar [aria-label*="rastgele" i]');
+      }
+      function isShufflePressed(btn) {
+        if (!btn) return false;
+        if (btn.getAttribute('aria-pressed') === 'true') return true;
+        if (btn.getAttribute('aria-checked') === 'true') return true;
+        if (btn.classList && (btn.classList.contains('selected')
+                           || btn.classList.contains('active'))) return true;
+        if (btn.hasAttribute('active')) return true;
+        // Some versions style the active state on a parent button-shape
+        var shape = btn.closest('yt-button-shape');
+        if (shape && shape.getAttribute('aria-pressed') === 'true') return true;
+        return false;
+      }
+      function attachShuffleClickListener() {
+        var btn = findShuffleBtn();
+        if (!btn || btn.__ytmShuffleListened) return;
+        btn.__ytmShuffleListened = true;
+        // Capture phase so we record the click before YT's own handler
+        // toggles aria-pressed.
+        btn.addEventListener('click', function() {
+          window.__ytmUserToggledShuffleAt = Date.now();
+        }, true);
+      }
+      function ensureShuffle() {
+        try {
+          if (!window.__ytmAlwaysShuffle) return;
+          // Respect a manual toggle for 30s so user can listen sequentially.
+          if (Date.now() - window.__ytmUserToggledShuffleAt < 30000) return;
+          attachShuffleClickListener();
+          var btn = findShuffleBtn();
+          if (!btn) return;
+          if (isShufflePressed(btn)) return;
+          btn.click();
+        } catch (e) {}
+      }
+      // One-shot attach attempt right after the bridge installs.
+      setTimeout(attachShuffleClickListener, 1500);
       // Try to attach until the <video> element appears (YT mounts it after
       // user interaction). Stops polling once attached.
       var __ytmAttachTimer = setInterval(function() {

@@ -17,6 +17,10 @@ struct SettingsView: View {
                 Toggle("Notify on track change", isOn: $prefs.notifyOnTrackChange)
                 Toggle("Mini player always on top", isOn: $prefs.miniPlayerAlwaysOnTop)
             }
+            Section("Playback") {
+                Toggle("Always shuffle (re-enables shuffle whenever YT Music turns it off)",
+                       isOn: $prefs.alwaysShuffle)
+            }
         }
         .formStyle(.grouped)
     }
