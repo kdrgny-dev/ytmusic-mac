@@ -24,13 +24,21 @@ final class MiniPlayerWindowController {
         w.title = "Mini Player"
         w.titleVisibility = .hidden
         w.titlebarAppearsTransparent = true
-        w.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        // Fixed-size horizontal pill. .closable kept so Cmd+W still works;
+        // .resizable dropped because size is locked. Traffic-light buttons
+        // hidden below so the chrome doesn't eat into the 100px height.
+        w.styleMask = [.titled, .closable, .fullSizeContentView]
         w.isMovableByWindowBackground = true
         w.backgroundColor = NSColor.clear
         w.isOpaque = false
         w.hasShadow = true
-        w.setContentSize(NSSize(width: 260, height: 320))
-        w.minSize = NSSize(width: 220, height: 270)
+        [.closeButton, .miniaturizeButton, .zoomButton].forEach { kind in
+            w.standardWindowButton(kind)?.isHidden = true
+        }
+        let size = NSSize(width: 650, height: 100)
+        w.setContentSize(size)
+        w.minSize = size
+        w.maxSize = size
         w.setFrameAutosaveName("YTMusicMacMiniPlayer")
         w.center()
         w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -56,126 +64,103 @@ struct MiniPlayerView: View {
     @EnvironmentObject private var media: MediaController
 
     var body: some View {
-        ZStack {
-            backdrop
-            VStack(spacing: 10) {
-                artworkWithOverlay
-                title
-                transport
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 28)   // leave room for traffic lights
-            .padding(.bottom, 14)
+        HStack(spacing: 14) {
+            cover
+            info
+            Spacer(minLength: 8)
+            reactionsPill
+            transportPill
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(width: 650, height: 100)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(white: 0.10))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     // MARK: - sections
 
-    private var backdrop: some View {
-        ZStack {
+    private var cover: some View {
+        Group {
             if let img = media.artwork {
                 Image(nsImage: img)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .blur(radius: 60, opaque: true)
-                    .opacity(0.55)
             } else {
-                Color(white: 0.08)
-            }
-            Color.black.opacity(0.35)
-        }
-        .ignoresSafeArea()
-    }
-
-    /// Square artwork that grows with the window width, with a small
-    /// like/dislike overlay in the top-right corner.
-    private var artworkWithOverlay: some View {
-        GeometryReader { geo in
-            let side = geo.size.width
-            ZStack(alignment: .topTrailing) {
-                Group {
-                    if let img = media.artwork {
-                        Image(nsImage: img)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    } else {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.white.opacity(0.06))
-                            .overlay(
-                                Image(systemName: "music.note")
-                                    .font(.system(size: 36))
-                                    .foregroundColor(.white.opacity(0.35))
-                            )
-                    }
-                }
-                .frame(width: side, height: side)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .shadow(color: .black.opacity(0.5), radius: 12, y: 4)
-
-                HStack(spacing: 4) {
-                    overlayButton(systemName: media.nowPlaying.liked ? "hand.thumbsup.fill" : "hand.thumbsup",
-                                  active: media.nowPlaying.liked,
-                                  tint: .pink) { media.run("like") }
-                    overlayButton(systemName: media.nowPlaying.disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown",
-                                  active: media.nowPlaying.disliked,
-                                  tint: .blue) { media.run("dislike") }
-                }
-                .padding(8)
+                Color.red
             }
         }
-        .aspectRatio(1, contentMode: .fit)
-        .frame(maxWidth: .infinity)
+        .frame(width: 72, height: 72)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 
-    private var title: some View {
-        VStack(spacing: 2) {
-            Text(media.nowPlaying.hasTrack ? media.nowPlaying.title : "Not Playing")
-                .font(.system(size: 13, weight: .semibold))
+    private var info: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(media.nowPlaying.hasTrack ? media.nowPlaying.title : "Song Title")
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(.white)
                 .lineLimit(1)
                 .truncationMode(.tail)
-            Text(media.nowPlaying.artist)
-                .font(.system(size: 11))
-                .foregroundColor(.white.opacity(0.7))
+            Text(media.nowPlaying.hasTrack ? media.nowPlaying.artist : "Artist")
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.65))
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var transport: some View {
-        HStack(spacing: 18) {
-            controlButton("backward.fill") { media.run("prev") }
-            controlButton(media.nowPlaying.isPlaying ? "pause.fill" : "play.fill", large: true) { media.run("playpause") }
-            controlButton("forward.fill") { media.run("next") }
+    private var reactionsPill: some View {
+        HStack(spacing: 4) {
+            pillButton(systemName: media.nowPlaying.liked ? "hand.thumbsup.fill" : "hand.thumbsup",
+                       active: media.nowPlaying.liked,
+                       tint: .pink) { media.run("like") }
+            pillButton(systemName: media.nowPlaying.disliked ? "hand.thumbsdown.fill" : "hand.thumbsdown",
+                       active: media.nowPlaying.disliked,
+                       tint: .white) { media.run("dislike") }
         }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.black.opacity(0.55))
+        )
+    }
+
+    private var transportPill: some View {
+        HStack(spacing: 4) {
+            pillButton(systemName: "backward.fill", active: false, tint: .white) { media.run("prev") }
+            pillButton(systemName: media.nowPlaying.isPlaying ? "pause.fill" : "play.fill",
+                       active: false, tint: .white, large: true) { media.run("playpause") }
+            pillButton(systemName: "forward.fill", active: false, tint: .white) { media.run("next") }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.black.opacity(0.55))
+        )
     }
 
     // MARK: - components
 
-    private func controlButton(_ symbol: String, large: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: large ? 22 : 14, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(width: large ? 44 : 32, height: large ? 44 : 32)
-                .background(Color.white.opacity(large ? 0.18 : 0.08))
-                .clipShape(Circle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func overlayButton(systemName: String,
-                               active: Bool,
-                               tint: Color,
-                               action: @escaping () -> Void) -> some View {
+    private func pillButton(systemName: String,
+                            active: Bool,
+                            tint: Color,
+                            large: Bool = false,
+                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: large ? 14 : 12, weight: .semibold))
                 .foregroundColor(active ? tint : .white)
-                .frame(width: 24, height: 24)
-                .background(Color.black.opacity(0.55))
-                .clipShape(Circle())
+                .frame(width: large ? 32 : 26, height: large ? 32 : 26)
+                .background(
+                    Circle().fill(large ? Color.white.opacity(0.12) : Color.clear)
+                )
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
     }
