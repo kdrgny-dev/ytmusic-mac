@@ -258,19 +258,31 @@ private struct Sidebar: View {
     let stroke: Color
     @ObservedObject var vm: NativeShellViewModel
 
-    private let topItems: [(String, String)] = [
-        ("house.fill",        "Home"),
-        ("magnifyingglass",   "Explore"),
-        ("heart.fill",        "Liked songs")
-    ]
+    private struct TopItem: Identifiable {
+        let id: String
+        let icon: String
+        let label: String
+        let action: () -> Void
+    }
+
+    private var topItems: [TopItem] {
+        [
+            .init(id: "home",    icon: "house.fill",            label: "Home",    action: { vm.goHome() }),
+            .init(id: "explore", icon: "safari",                label: "Explore", action: { vm.goExplore() }),
+            .init(id: "search",  icon: "magnifyingglass",       label: "Search",  action: { vm.toggleSearch() })
+        ]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
                     sectionHeader("Browse")
-                    ForEach(topItems, id: \.1) { icon, name in
-                        sidebarRow(icon: icon, label: name)
+                    ForEach(topItems) { item in
+                        Button(action: item.action) {
+                            sidebarRow(icon: item.icon, label: item.label)
+                        }
+                        .buttonStyle(.plain)
                     }
 
                     HStack {
