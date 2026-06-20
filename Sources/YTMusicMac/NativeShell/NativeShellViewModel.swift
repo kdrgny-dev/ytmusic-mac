@@ -179,6 +179,19 @@ final class NativeShellViewModel: ObservableObject {
     @Published private(set) var queuePlayingIndex: Int = -1
     @Published var isQueueVisible: Bool = false
 
+    /// User-managed queue. Independent of YT's internal queue — when the
+    /// current track ends, we navigate the (hidden) WebView to the next
+    /// videoId from this list. Lets Add to queue / Play next work for
+    /// real without depending on YT's brittle internal API.
+    struct OwnQueueItem: Identifiable, Hashable {
+        let id: UUID = UUID()
+        let videoId: String
+        let title: String
+        let artist: String
+        let thumbnailURL: String?
+    }
+    @Published private(set) var ownQueue: [OwnQueueItem] = []
+
     enum SearchKind: String, CaseIterable, Identifiable {
         case playlist, song, artist, album
         var id: String { rawValue }
@@ -587,14 +600,65 @@ final class NativeShellViewModel: ObservableObject {
         }
     }
 
-    /// "Add to queue" / "Play next" — placeholder for now. Doing this
-    /// properly needs an action token tied to YT's queue continuation
-    /// (the actual "..." menu carries it as queueAddEndpoint.params).
-    /// We can't synthesize that token from outside; the right fix is
-    /// owning the queue model ourselves and chaining videoIds as
-    /// /watch?v= navigations on track-end. That's the next big rock.
-    func addToQueue(videoId: String, title: String, playNext: Bool = false) {
-        showToast("Add to queue — coming soon (own queue model)")
+    /// Real Add to queue / Play next, backed by ownQueue. Append at the
+    /// end for Add to queue, prepend for Play next. When the current YT
+    /// track ends (signalled via the JS bridge), handleTrackEnded pops
+    /// the head and navigates the WebView to it.
+    func addToQueue(videoId: String, title: String, artist: String = "",
+                    thumbnailURL: String? = nil, playNext: Bool = false) {
+        let item = OwnQueueItem(videoId: videoId, title: title,
+                                artist: artist, thumbnailURL: thumbnailURL)
+        if playNext {
+            ownQueue.insert(item, at: 0)
+            showToast("Playing next: \(title)")
+        } else {
+            ownQueue.append(item)
+            showToast("Added to queue: \(title)")
+        }
+    }
+
+    /// Convenience for the TrackRow context menu which already has the
+    /// full TrackSummary.
+    func addToQueue(track: TrackSummary, playNext: Bool = false) {
+        addToQueue(videoId: track.id,
+                   title: track.title,
+                   artist: track.artist,
+                   thumbnailURL: track.thumbnailURL,
+                   playNext: playNext)
+    }
+
+    /// Called from the JS bridge when the currently-playing video ends.
+    /// Pulls the head of ownQueue (if any) and navigates to it.
+    func handleTrackEnded() {
+        guard !ownQueue.isEmpty else { return }
+        let next = ownQueue.removeFirst()
+        let urlStr = "https://music.youtube.com/watch?v=\(next.videoId)"
+        if let url = URL(string: urlStr) {
+            WebViewHolder.shared.webView?.load(URLRequest(url: url))
+        }
+    }
+
+    /// Jump to a specific position in ownQueue — plays that item now and
+    /// drops everything before it. Used when the user clicks a row in
+    /// the own-queue section of the queue panel.
+    func playOwnQueueItem(_ item: OwnQueueItem) {
+        guard let idx = ownQueue.firstIndex(of: item) else { return }
+        let urlStr = "https://music.youtube.com/watch?v=\(item.videoId)"
+        ownQueue.removeFirst(idx + 1)
+        if let url = URL(string: urlStr) {
+            WebViewHolder.shared.webView?.load(URLRequest(url: url))
+        }
+    }
+
+    /// Remove an item from ownQueue (swipe / context menu).
+    func removeFromOwnQueue(_ item: OwnQueueItem) {
+        ownQueue.removeAll(where: { $0.id == item.id })
+    }
+
+    /// Clear everything the user manually queued.
+    func clearOwnQueue() {
+        ownQueue.removeAll()
+        showToast("Cleared queue")
     }
 
     func addToPlaylist(videoId: String, playlistId: String, trackTitle: String, playlistTitle: String) {

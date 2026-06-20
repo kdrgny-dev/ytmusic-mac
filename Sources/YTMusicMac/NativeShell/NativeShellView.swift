@@ -1140,12 +1140,8 @@ private struct PlaylistDetailView: View {
     @ViewBuilder
     private func trackContextMenu(for t: NativeShellViewModel.TrackSummary) -> some View {
         Button("Play") { vm.playTrack(t) }
-        Button("Play next") {
-            vm.addToQueue(videoId: t.id, title: t.title, playNext: true)
-        }
-        Button("Add to queue") {
-            vm.addToQueue(videoId: t.id, title: t.title)
-        }
+        Button("Play next") { vm.addToQueue(track: t, playNext: true) }
+        Button("Add to queue") { vm.addToQueue(track: t) }
         Divider()
         Button("Like") { vm.likeTrack(videoId: t.id, title: t.title) }
         Button("Dislike") { vm.dislikeTrack(videoId: t.id, title: t.title) }
@@ -1433,7 +1429,7 @@ private struct QueuePanel: View {
 
     @ViewBuilder
     private var content: some View {
-        if vm.queue.isEmpty {
+        if vm.queue.isEmpty && vm.ownQueue.isEmpty {
             VStack(spacing: 6) {
                 Image(systemName: "music.note.list")
                     .font(.system(size: 24, weight: .light))
@@ -1441,7 +1437,7 @@ private struct QueuePanel: View {
                 Text("Queue is empty")
                     .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.45))
-                Text("Play something to fill it.")
+                Text("Right-click a track → Add to queue.")
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.3))
             }
@@ -1449,6 +1445,21 @@ private struct QueuePanel: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    if !vm.ownQueue.isEmpty {
+                        ownQueueHeader
+                        ForEach(vm.ownQueue) { item in
+                            Button(action: { vm.playOwnQueueItem(item) }) {
+                                OwnQueueRow(item: item, raised: raised)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("Play now") { vm.playOwnQueueItem(item) }
+                                Button("Remove") { vm.removeFromOwnQueue(item) }
+                            }
+                        }
+                        Divider().background(Color.white.opacity(0.1))
+                            .padding(.vertical, 6)
+                    }
                     ForEach(vm.queue) { item in
                         Button(action: { vm.jumpToQueueIndex(item.id) }) {
                             QueueRow(item: item, raised: raised)
@@ -1461,6 +1472,25 @@ private struct QueuePanel: View {
                 .padding(.vertical, 6)
             }
         }
+    }
+
+    private var ownQueueHeader: some View {
+        HStack {
+            Text("UP NEXT")
+                .font(.system(size: 10, weight: .semibold))
+                .tracking(0.6)
+                .foregroundColor(.white.opacity(0.5))
+            Spacer()
+            Button(action: { vm.clearOwnQueue() }) {
+                Text("Clear")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.55))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 4)
+        .padding(.bottom, 4)
     }
 
     @ViewBuilder
@@ -1487,6 +1517,58 @@ private struct QueuePanel: View {
             }
             Divider()
             Button("Open in browser") { vm.openInBrowser(videoId: vid) }
+        }
+    }
+}
+
+/// Visually distinct from QueueRow so the user can tell at a glance
+/// which items are theirs ("Up next") versus YT's autoplay context.
+private struct OwnQueueRow: View {
+    let item: NativeShellViewModel.OwnQueueItem
+    let raised: Color
+    @State private var hovered = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            cover
+                .frame(width: 36, height: 36)
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                Text(item.artist.isEmpty ? "Manual" : item.artist)
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.5))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "plus")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(.accentColor.opacity(0.85))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(hovered ? Color.white.opacity(0.06) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+    }
+
+    @ViewBuilder
+    private var cover: some View {
+        if let s = item.thumbnailURL, let url = URL(string: s) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let img):
+                    img.resizable().aspectRatio(contentMode: .fill)
+                default:
+                    raised
+                }
+            }
+        } else {
+            raised
         }
     }
 }

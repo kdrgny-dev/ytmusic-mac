@@ -450,6 +450,13 @@ enum PlayerBridge {
          'loadedmetadata', 'durationchange', 'ended'].forEach(function(ev) {
           v.addEventListener(ev, sendSoon);
         });
+        // Distinct 'ended' notification for own-queue chaining — separate
+        // from the player-state poll so native can react in one hop.
+        v.addEventListener('ended', function() {
+          try {
+            window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'ended' });
+          } catch (e) {}
+        });
         // Shuffle keeper: re-enable shuffle every time a new track starts
         // unless the user explicitly disabled it recently (see ensureShuffle).
         v.addEventListener('loadedmetadata', function() {

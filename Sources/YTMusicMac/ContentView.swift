@@ -60,6 +60,7 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         userContent.add(self, name: "ytmBridge")
         userContent.add(self, name: "ytmLog")
         userContent.add(self, name: "ytmQueue")
+        userContent.add(self, name: "ytmEvent")
         userContent.addUserScript(WKUserScript(
             source: PlayerBridge.injectionScript,
             injectionTime: .atDocumentEnd,
@@ -120,6 +121,11 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         case "ytmQueue":
             if let body = message.body as? [String: Any] {
                 NativeShellViewModel.shared.updateQueue(from: body)
+            }
+        case "ytmEvent":
+            if let body = message.body as? [String: Any],
+               let name = body["name"] as? String, name == "ended" {
+                Task { @MainActor in NativeShellViewModel.shared.handleTrackEnded() }
             }
         default: break
         }
