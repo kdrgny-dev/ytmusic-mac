@@ -675,22 +675,13 @@ private struct CarouselSection<Item: Identifiable, Content: View>: View where It
     let estimatedItemWidth: CGFloat
     @ViewBuilder let content: (Item) -> Content
 
-    /// Container width — measured via GeometryReader behind the carousel
-    /// so we can decide whether chevrons are even needed.
-    @State private var containerWidth: CGFloat = 0
     /// Index of the leading visible item — drives the chevron's enabled
     /// state. Updated by the chevrons; trackpad scroll doesn't (and
     /// doesn't need to — we just want sane enable/disable).
     @State private var currentIndex: Int = 0
 
-    private var contentWidth: CGFloat {
-        CGFloat(items.count) * estimatedItemWidth
-    }
-    private var needsScroll: Bool {
-        containerWidth > 0 && contentWidth > containerWidth + 1
-    }
-    private var canLeft: Bool  { needsScroll && currentIndex > 0 }
-    private var canRight: Bool { needsScroll && currentIndex < max(0, items.count - 1) }
+    private var canLeft: Bool  { currentIndex > 0 }
+    private var canRight: Bool { currentIndex < max(0, items.count - 1) }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -705,12 +696,6 @@ private struct CarouselSection<Item: Identifiable, Content: View>: View where It
                     .padding(.bottom, 4)
                 }
             }
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: CarouselWidthKey.self, value: geo.size.width)
-                }
-            )
-            .onPreferenceChange(CarouselWidthKey.self) { containerWidth = $0 }
         }
     }
 
@@ -728,10 +713,8 @@ private struct CarouselSection<Item: Identifiable, Content: View>: View where It
                     .foregroundColor(.white)
             }
             Spacer()
-            if needsScroll {
-                navChevron(.leftward, proxy: proxy)
-                navChevron(.rightward, proxy: proxy)
-            }
+            navChevron(.leftward, proxy: proxy)
+            navChevron(.rightward, proxy: proxy)
         }
     }
 
