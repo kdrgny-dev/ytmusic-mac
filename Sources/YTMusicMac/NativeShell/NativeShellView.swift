@@ -455,7 +455,7 @@ private struct HomeView: View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 28) {
                 header
-                if vm.homeLoading && vm.homeShelves.isEmpty && vm.genres.isEmpty {
+                if vm.homeLoading && vm.homeShelves.isEmpty && vm.genreSections.isEmpty {
                     loadingState
                 } else if let msg = vm.homeError, vm.homeShelves.isEmpty {
                     errorState(msg)
@@ -463,8 +463,8 @@ private struct HomeView: View {
                     ForEach(vm.homeShelves) { shelf in
                         ShelfRow(shelf: shelf, vm: vm)
                     }
-                    if !vm.genres.isEmpty {
-                        GenresSection(genres: vm.genres, vm: vm)
+                    ForEach(vm.genreSections) { section in
+                        GenreCarousel(section: section, vm: vm)
                     }
                     Spacer(minLength: 40)
                 }
@@ -583,48 +583,49 @@ private struct ShelfRow: View {
     }
 }
 
-private struct GenresSection: View {
-    let genres: [NativeShellViewModel.GenreChip]
+/// One section of the moods/genres landing — its own row with a section
+/// title and a horizontally scrolling carousel of coloured chips. We do
+/// one per YT-side gridRenderer so the user gets the same grouping the
+/// web UI has (Moods & moments / Genres / Decades / etc.).
+private struct GenreCarousel: View {
+    let section: NativeShellViewModel.GenreSection
     @ObservedObject var vm: NativeShellViewModel
 
-    /// Adaptive grid — chips wrap to fill the available width regardless
-    /// of window size. Min item width keeps them readable on a tight
-    /// resize.
-    private let columns = [GridItem(.adaptive(minimum: 180), spacing: 12)]
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("MÜZİK TÜRLERİ & MOOD'LAR")
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.5)
-                    .foregroundColor(.white.opacity(0.5))
-                Text("Tarz seç")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(.white)
-            }
-            LazyVGrid(columns: columns, spacing: 12) {
-                ForEach(genres) { g in
-                    Button(action: { vm.openGenre(g) }) {
-                        GenreChipView(genre: g)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(section.title)
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.white)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(section.chips) { g in
+                        Button(action: { vm.openGenre(g) }) {
+                            GenreChipView(genre: g)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding(.bottom, 4)
             }
         }
     }
 }
 
-/// Solid-color rectangle with the genre title. Color is derived
-/// deterministically from the title so the same genre always looks the
-/// same across sessions, and the palette spreads so adjacent chips don't
-/// collide.
+/// Coloured tile with the genre title. Prefers YT's own brand color (when
+/// present in the response), falling back to a deterministic hue from the
+/// title so the palette is stable across sessions.
 private struct GenreChipView: View {
     let genre: NativeShellViewModel.GenreChip
     @State private var hovered: Bool = false
 
     private var bg: Color {
-        // Hash → hue. Deterministic + spread.
+        if let c = genre.color {
+            // YT ships RGB packed as 0xFFRRGGBB; mask the alpha out.
+            let r = Double((c >> 16) & 0xFF) / 255.0
+            let g = Double((c >> 8) & 0xFF) / 255.0
+            let b = Double(c & 0xFF) / 255.0
+            return Color(red: r, green: g, blue: b)
+        }
         let hash = abs(genre.title.unicodeScalars.reduce(0) { $0 &+ Int($1.value) })
         let hue = Double(hash % 360) / 360.0
         return Color(hue: hue, saturation: 0.55, brightness: 0.45)
@@ -634,31 +635,43 @@ private struct GenreChipView: View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(bg)
-                .frame(height: 76)
+                .frame(width: 200, height: 96)
+            // Subtle darken-from-bottom-right gradient so text stays
+            // readable on lighter brand colours.
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(
+                    LinearGradient(colors: [.clear, .black.opacity(0.3)],
+                                   startPoint: .topLeading,
+                                   endPoint: .bottomTrailing)
+                )
+                .frame(width: 200, height: 96)
             Text(genre.title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 15, weight: .bold))
                 .foregroundColor(.white)
                 .padding(.horizontal, 12)
                 .padding(.top, 10)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
-            // Decorative tilted square in the bottom-right corner —
-            // same visual idiom YT Music uses for these tiles.
+                .frame(maxWidth: 180, alignment: .leading)
+            // Tilted card-back decoration in the bottom-right corner,
+            // same visual idiom YT Music uses on these tiles.
             GeometryReader { geo in
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.black.opacity(0.25))
-                    .frame(width: 50, height: 50)
+                    .fill(Color.black.opacity(0.28))
+                    .frame(width: 64, height: 64)
                     .rotationEffect(.degrees(25))
-                    .offset(x: geo.size.width - 40, y: geo.size.height - 30)
+                    .offset(x: geo.size.width - 46, y: geo.size.height - 34)
             }
+            .frame(width: 200, height: 96)
             .clipped()
         }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.white.opacity(hovered ? 0.25 : 0), lineWidth: 1)
+                .stroke(Color.white.opacity(hovered ? 0.3 : 0), lineWidth: 1)
         )
-        .scaleEffect(hovered ? 1.02 : 1.0)
+        .scaleEffect(hovered ? 1.03 : 1.0)
+        .shadow(color: .black.opacity(hovered ? 0.4 : 0), radius: 8, y: 4)
         .animation(.easeOut(duration: 0.12), value: hovered)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }

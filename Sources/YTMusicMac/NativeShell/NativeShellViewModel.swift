@@ -77,15 +77,32 @@ final class NativeShellViewModel: ObservableObject {
     @Published private(set) var homeError: String?
     private var homeLoaded: Bool = false
 
-    /// Mood / genre chips that show up at the bottom of Home — fetched
-    /// from a separate FEmusic_moods_and_genres browse and merged into
-    /// the same view model so the view stays simple.
+    /// One chip on the moods & genres landing page. Every chip shares the
+    /// same browseId (`FEmusic_moods_and_genres_category`) and is only
+    /// distinguished by its `params` token — so we use `params` as the
+    /// stable id, not the browseId.
     struct GenreChip: Identifiable, Hashable {
-        let id: String        // browseId of the genre/mood landing
+        let id: String        // = params, unique per chip
         let title: String
-        let params: String?   // continuation token; passed to the next browse
+        let params: String
+        let browseId: String
+        /// Decoded RGBA from the response's `solid.leftStripeColor` int.
+        /// YT ships per-category brand colors; we use them as the chip's
+        /// background so the grid looks like YT/Spotify's coloured tiles.
+        let color: UInt32?
     }
-    @Published private(set) var genres: [GenreChip] = []
+
+    /// YT splits the page into multiple sections — "Moods & moments",
+    /// "Genres", "Decades", etc. Each becomes one horizontal carousel
+    /// in Home so the user can scroll a section without it eating
+    /// vertical space.
+    struct GenreSection: Identifiable {
+        let id: String
+        let title: String
+        let chips: [GenreChip]
+    }
+
+    @Published private(set) var genreSections: [GenreSection] = []
 
     struct QueueItem: Identifiable, Hashable {
         let id: Int        // index — stable per render, matches JS-side index
@@ -206,12 +223,15 @@ final class NativeShellViewModel: ObservableObject {
         Task { await loadTracks(for: p) }
     }
 
-    /// Genre / mood chip click — for now we navigate the WebView to the
-    /// category landing page (it's a rich grid of mood-tuned playlists),
-    /// since a native renderer for it is a separate Phase 2 task.
+    /// Genre / mood chip click — navigate the WebView with the chip's
+    /// params token. Every chip shares the same browseId so without the
+    /// token YT just shows the landing page. Native category view comes
+    /// in a later pass.
     func openGenre(_ g: GenreChip) {
-        let bareId = g.id.hasPrefix("VL") ? String(g.id.dropFirst(2)) : g.id
-        let urlStr = "https://music.youtube.com/browse/\(bareId)"
+        var urlStr = "https://music.youtube.com/browse/\(g.browseId)"
+        if !g.params.isEmpty {
+            urlStr += "?params=\(g.params)"
+        }
         if let url = URL(string: urlStr) {
             WebViewHolder.shared.webView?.load(URLRequest(url: url))
         }
@@ -328,17 +348,17 @@ final class NativeShellViewModel: ObservableObject {
                 return HomeParser.parse(data: data)
             } catch { return [] }
         }()
-        async let genresTask: [GenreChip] = {
+        async let genresTask: [GenreSection] = {
             do {
                 let data = try await self.client.browse(browseId: "FEmusic_moods_and_genres")
-                return GenreParser.parse(data: data)
+                return GenreParser.parseSections(data: data)
             } catch { return [] }
         }()
         let shelves = await shelvesTask
-        let genreChips = await genresTask
+        let sections = await genresTask
         homeShelves = shelves
-        genres = genreChips
-        homeError = shelves.isEmpty && genreChips.isEmpty
+        genreSections = sections
+        homeError = shelves.isEmpty && sections.isEmpty
             ? "Couldn't load home."
             : nil
         homeLoaded = true
@@ -999,21 +1019,22 @@ enum HomeParser {
 }
 
 /// Pulls the genre/mood chips out of the FEmusic_moods_and_genres
-/// browse response. The shape is a sectionList whose grid contents are
-/// `musicNavigationButtonRenderer` entries — each is one chip with a
-/// title and a browseEndpoint that points to the category.
+/// browse response. YT structures the page as multiple sections —
+/// "Moods & moments", "Genres", "Decades", etc. Each section is a
+/// `gridRenderer` whose header carries the section title and whose
+/// items are `musicNavigationButtonRenderer` chips.
 enum GenreParser {
-    static func parse(data: Data) -> [NativeShellViewModel.GenreChip] {
+    static func parseSections(data: Data) -> [NativeShellViewModel.GenreSection] {
         guard let json = try? JSONSerialization.jsonObject(with: data) else { return [] }
-        var out: [NativeShellViewModel.GenreChip] = []
-        var seen = Set<String>()
+        var sections: [NativeShellViewModel.GenreSection] = []
+        var idx = 0
         walk(json) { dict in
-            guard let renderer = dict["musicNavigationButtonRenderer"] as? [String: Any],
-                  let chip = extract(renderer),
-                  seen.insert(chip.id).inserted else { return }
-            out.append(chip)
+            guard let grid = dict["gridRenderer"] as? [String: Any],
+                  let section = extractSection(grid, index: idx) else { return }
+            sections.append(section)
+            idx += 1
         }
-        return out
+        return sections
     }
 
     private static func walk(_ node: Any, visit: ([String: Any]) -> Void) {
@@ -1025,15 +1046,48 @@ enum GenreParser {
         }
     }
 
-    private static func extract(_ renderer: [String: Any]) -> NativeShellViewModel.GenreChip? {
+    private static func extractSection(_ grid: [String: Any],
+                                       index: Int) -> NativeShellViewModel.GenreSection? {
+        let header = (grid["header"] as? [String: Any])?["gridHeaderRenderer"] as? [String: Any]
+        let title = ((header?["title"] as? [String: Any])?["runs"] as? [[String: Any]])?
+            .compactMap { $0["text"] as? String }
+            .joined() ?? ""
+        let items = (grid["items"] as? [[String: Any]]) ?? []
+        let chips = items.compactMap { item -> NativeShellViewModel.GenreChip? in
+            guard let r = item["musicNavigationButtonRenderer"] as? [String: Any]
+            else { return nil }
+            return extractChip(r)
+        }
+        guard !chips.isEmpty else { return nil }
+        return .init(id: "genre-section-\(index)-\(title)",
+                     title: title.isEmpty ? "More" : title,
+                     chips: chips)
+    }
+
+    private static func extractChip(_ renderer: [String: Any]) -> NativeShellViewModel.GenreChip? {
         let title = ((renderer["buttonText"] as? [String: Any])?["runs"] as? [[String: Any]])?
             .compactMap { $0["text"] as? String }.joined() ?? ""
         let browse = (renderer["clickCommand"] as? [String: Any])?["browseEndpoint"] as? [String: Any]
             ?? (renderer["onTapCommand"] as? [String: Any])?["browseEndpoint"] as? [String: Any]
-        let browseId = browse?["browseId"] as? String
-        let params = browse?["params"] as? String
-        guard let id = browseId, !title.isEmpty else { return nil }
-        return .init(id: id, title: title, params: params)
+        let browseId = browse?["browseId"] as? String ?? ""
+        let params = browse?["params"] as? String ?? ""
+        // YT ships per-chip brand colors inside `solid.leftStripeColor`
+        // as an int. Used as the chip's background tint so the grid looks
+        // like the YT/Spotify colored tile design instead of monochrome.
+        let solid = renderer["solid"] as? [String: Any]
+        var colorInt: UInt32?
+        if let raw = solid?["leftStripeColor"] {
+            if let u = raw as? UInt32                          { colorInt = u }
+            else if let i = raw as? Int64, let u = UInt32(exactly: i) { colorInt = u }
+            else if let i = raw as? Int,   let u = UInt32(exactly: i) { colorInt = u }
+            else if let n = raw as? NSNumber                   { colorInt = n.uint32Value }
+        }
+        guard !title.isEmpty, !params.isEmpty else { return nil }
+        return .init(id: params,
+                     title: title,
+                     params: params,
+                     browseId: browseId,
+                     color: colorInt)
     }
 }
 
