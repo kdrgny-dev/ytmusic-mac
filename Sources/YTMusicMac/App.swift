@@ -93,6 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ctrl.addItem(.separator())
         ctrl.addItem(item("Focus Search", #selector(AppActions.focusSearch), target: AppActions.shared,
                           key: "k", mods: [.command]))
+        ctrl.addItem(item("Toggle Queue Panel", #selector(AppActions.toggleQueue), target: AppActions.shared,
+                          key: "e", mods: [.command]))
         ctrl.addItem(item("Reload", #selector(AppActions.reload), target: AppActions.shared,
                           key: "r", mods: [.command]))
         ctrl.addItem(.separator())
@@ -149,4 +151,7 @@ final class AppActions: NSObject {
     @objc func reload() { WebViewHolder.shared.reload() }
     @objc func clearData() { WebViewHolder.shared.clearAllData() }
     @objc func openSettings() { SettingsWindowController.shared.show() }
+    @objc func toggleQueue() {
+        Task { @MainActor in NativeShellViewModel.shared.toggleQueue() }
+    }
 }

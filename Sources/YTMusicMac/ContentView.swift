@@ -59,6 +59,7 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         let userContent = WKUserContentController()
         userContent.add(self, name: "ytmBridge")
         userContent.add(self, name: "ytmLog")
+        userContent.add(self, name: "ytmQueue")
         userContent.addUserScript(WKUserScript(
             source: PlayerBridge.injectionScript,
             injectionTime: .atDocumentEnd,
@@ -115,6 +116,10 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
                let level = body["level"] as? String,
                let text = body["text"] as? String {
                 FileHandle.standardError.write(Data("[js:\(level)] \(text)\n".utf8))
+            }
+        case "ytmQueue":
+            if let body = message.body as? [String: Any] {
+                NativeShellViewModel.shared.updateQueue(from: body)
             }
         default: break
         }

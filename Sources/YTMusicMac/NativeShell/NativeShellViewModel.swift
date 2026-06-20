@@ -38,6 +38,18 @@ final class NativeShellViewModel: ObservableObject {
     @Published private(set) var loadingTracks = false
     @Published private(set) var tracksError: String?
 
+    struct QueueItem: Identifiable, Hashable {
+        let id: Int        // index — stable per render, matches JS-side index
+        let title: String
+        let artist: String
+        let thumbnailURL: String?
+        let isPlaying: Bool
+    }
+
+    @Published private(set) var queue: [QueueItem] = []
+    @Published private(set) var queuePlayingIndex: Int = -1
+    @Published var isQueueVisible: Bool = false
+
     private let auth = AuthSession()
     private let client: InnerTubeClient
 
@@ -115,6 +127,32 @@ final class NativeShellViewModel: ObservableObject {
         guard let url = URL(string: urlStr) else { return }
         WebViewHolder.shared.webView?.load(URLRequest(url: url))
     }
+
+    /// Called by WebViewHolder when the JS bridge pushes a queue update.
+    /// Body shape: `{ items: [{title, artist, thumbnail, isPlaying, index}], playingIndex, total }`.
+    func updateQueue(from body: [String: Any]) {
+        let raw = (body["items"] as? [[String: Any]]) ?? []
+        let mapped: [QueueItem] = raw.compactMap { dict in
+            let idx = dict["index"] as? Int ?? 0
+            let title = dict["title"] as? String ?? ""
+            let artist = dict["artist"] as? String ?? ""
+            let thumb = dict["thumbnail"] as? String
+            let playing = dict["isPlaying"] as? Bool ?? false
+            guard !title.isEmpty else { return nil }
+            return QueueItem(id: idx, title: title, artist: artist,
+                             thumbnailURL: thumb, isPlaying: playing)
+        }
+        queue = mapped
+        queuePlayingIndex = (body["playingIndex"] as? Int) ?? -1
+    }
+
+    /// Jump playback to the n-th item in the current queue.
+    func jumpToQueueIndex(_ index: Int) {
+        let js = "window.__ytmJumpQueue && window.__ytmJumpQueue(\(index))"
+        WebViewHolder.shared.webView?.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    func toggleQueue() { isQueueVisible.toggle() }
 }
 
 /// Tiny JSON walker that finds the renderers we care about anywhere in the

@@ -577,6 +577,83 @@ enum PlayerBridge {
         } catch (e) {}
       };
 
+      // ---------- Queue read + jump ----------
+      // Surfaces YT's player queue so the SwiftUI shell can render its
+      // own queue panel. Read on yt-navigate-finish + on player-bar
+      // mutations + on each track change (loadedmetadata).
+      function readQueue() {
+        try {
+          var items = document.querySelectorAll('ytmusic-player-queue-item');
+          var out = [];
+          var playingIndex = -1;
+          for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            var titleEl = item.querySelector('.song-title, yt-formatted-string.song-title');
+            var artistEl = item.querySelector('.byline, yt-formatted-string.byline');
+            var imgEl = item.querySelector('yt-img-shadow img, img');
+            var selected = item.hasAttribute('selected') ||
+                           item.getAttribute('aria-selected') === 'true' ||
+                           item.classList.contains('selected');
+            if (selected) playingIndex = i;
+            out.push({
+              index: i,
+              title: titleEl ? titleEl.textContent.trim() : '',
+              artist: artistEl ? artistEl.textContent.trim() : '',
+              thumbnail: imgEl ? imgEl.src : '',
+              isPlaying: selected
+            });
+          }
+          window.webkit.messageHandlers.ytmQueue.postMessage({
+            items: out, playingIndex: playingIndex, total: out.length
+          });
+        } catch (e) {}
+      }
+
+      var __ytmQueuePending = false;
+      function scheduleQueueRead() {
+        if (__ytmQueuePending) return;
+        __ytmQueuePending = true;
+        setTimeout(function() { __ytmQueuePending = false; readQueue(); }, 200);
+      }
+
+      // Jump to a specific queue index. The play target on YT's own queue
+      // items is the song-title link — simulating a click on that starts
+      // playback at that row inside the current queue.
+      window.__ytmJumpQueue = function(index) {
+        try {
+          var items = document.querySelectorAll('ytmusic-player-queue-item');
+          if (!items[index]) return;
+          var target = items[index].querySelector('.song-title') ||
+                       items[index].querySelector('a.yt-simple-endpoint') ||
+                       items[index];
+          ['mousedown', 'mouseup', 'click'].forEach(function(t) {
+            target.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true }));
+          });
+        } catch (e) {}
+      };
+
+      // Hook into our existing track-change listener path: each time a new
+      // track starts, the queue's `selected` row changes too.
+      function attachQueueHooks() {
+        var v = q('video');
+        if (v && !v.__ytmQueueListened) {
+          v.__ytmQueueListened = true;
+          v.addEventListener('loadedmetadata', scheduleQueueRead);
+          v.addEventListener('play', scheduleQueueRead);
+        }
+        var queue = q('ytmusic-player-queue');
+        if (queue && !queue.__ytmObs) {
+          queue.__ytmObs = true;
+          new MutationObserver(scheduleQueueRead)
+            .observe(queue, { childList: true, subtree: true });
+        }
+        return !!(v || queue);
+      }
+      var __ytmQueueHookTimer = setInterval(function() {
+        if (attachQueueHooks()) clearInterval(__ytmQueueHookTimer);
+      }, 1000);
+      window.addEventListener('yt-navigate-finish', scheduleQueueRead);
+
       // Double-click a track row to play it. Default YT Music requires
       // clicking the hover-revealed play icon — annoying. We listen at the
       // document level so this works for any list (playlists, search,
