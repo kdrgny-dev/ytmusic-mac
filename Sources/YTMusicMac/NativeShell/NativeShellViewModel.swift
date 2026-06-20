@@ -232,6 +232,18 @@ final class NativeShellViewModel: ObservableObject {
         Task {
             do {
                 let bareId = playlistId.hasPrefix("VL") ? String(playlistId.dropFirst(2)) : playlistId
+
+                // "Liked Music" is YT's auto-playlist of liked songs. It's
+                // not editable via /browse/edit_playlist — the way YT adds
+                // a track to it is by calling the like endpoint. Route there
+                // so the user sees a real success instead of a useless
+                // "not editable" message.
+                if bareId == "LM" {
+                    _ = try await client.like(videoId: videoId)
+                    showToast("Added “\(trackTitle)” to Liked Music")
+                    return
+                }
+
                 guard bareId.hasPrefix("PL") else {
                     showToast("\(playlistTitle) isn't editable")
                     return
