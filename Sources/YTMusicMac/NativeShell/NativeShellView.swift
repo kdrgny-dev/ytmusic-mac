@@ -9,6 +9,7 @@ import SwiftUI
 /// lighter surface tints — Apple Music / Spotify / Notion family.
 struct NativeShellView: View {
     @EnvironmentObject private var media: MediaController
+    @StateObject private var vm = NativeShellViewModel.shared
 
     // Surface tokens. Distinct enough that each region is visible against
     // its neighbour without being noisy. Tweak in one place.
@@ -20,7 +21,7 @@ struct NativeShellView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                Sidebar(bg: bgSurface, stroke: strokeColor)
+                Sidebar(bg: bgSurface, stroke: strokeColor, vm: vm)
                 Divider().background(strokeColor)
                 MainContent(bg: bgBase)
             }
@@ -33,6 +34,7 @@ struct NativeShellView: View {
         }
         .background(bgBase)
         .preferredColorScheme(.dark)
+        .onAppear { vm.loadPlaylistsIfNeeded() }
     }
 }
 
@@ -41,35 +43,72 @@ struct NativeShellView: View {
 private struct Sidebar: View {
     let bg: Color
     let stroke: Color
+    @ObservedObject var vm: NativeShellViewModel
 
-    private let items: [(String, String)] = [
+    private let topItems: [(String, String)] = [
         ("house.fill",        "Home"),
         ("magnifyingglass",   "Explore"),
-        ("rectangle.stack.fill", "Library"),
         ("heart.fill",        "Liked songs")
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            sectionHeader("Browse")
-            ForEach(items, id: \.1) { icon, name in
-                sidebarRow(icon: icon, label: name)
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 2) {
+                    sectionHeader("Browse")
+                    ForEach(topItems, id: \.1) { icon, name in
+                        sidebarRow(icon: icon, label: name)
+                    }
+
+                    HStack {
+                        sectionHeader("Your playlists")
+                        Spacer()
+                        Button(action: { vm.reload() }) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 10))
+                                .foregroundColor(.white.opacity(0.5))
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, 14)
+                    }
+                    .padding(.top, 18)
+
+                    playlistSection
+                }
+                .padding(.vertical, 14)
             }
-
-            sectionHeader("Your library")
-                .padding(.top, 18)
-            Text("Sign in to see your playlists")
-                .font(.system(size: 12))
-                .foregroundColor(.white.opacity(0.4))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
-
-            Spacer(minLength: 0)
         }
-        .padding(.vertical, 14)
         .frame(width: 240)
         .frame(maxHeight: .infinity)
         .background(bg)
+    }
+
+    @ViewBuilder
+    private var playlistSection: some View {
+        if vm.loadingPlaylists && vm.playlists.isEmpty {
+            HStack {
+                ProgressView().controlSize(.small)
+                Text("Loading…")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.5))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+        } else if let msg = vm.errorMessage, vm.playlists.isEmpty {
+            Text(msg)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.5))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .lineLimit(3)
+        } else {
+            ForEach(vm.playlists) { p in
+                Button(action: { vm.openPlaylist(p) }) {
+                    playlistRow(p)
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     private func sectionHeader(_ text: String) -> some View {
@@ -95,6 +134,44 @@ private struct Sidebar: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
         .contentShape(Rectangle())
+    }
+
+    private func playlistRow(_ p: NativeShellViewModel.PlaylistSummary) -> some View {
+        HStack(spacing: 10) {
+            thumbnail(for: p)
+                .frame(width: 28, height: 28)
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+            Text(p.title)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.85))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func thumbnail(for p: NativeShellViewModel.PlaylistSummary) -> some View {
+        if let urlString = p.thumbnailURL, let url = URL(string: urlString) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let img):
+                    img.resizable().aspectRatio(contentMode: .fill)
+                default:
+                    Color.white.opacity(0.06)
+                }
+            }
+        } else {
+            Color.white.opacity(0.06)
+                .overlay(
+                    Image(systemName: "music.note")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.4))
+                )
+        }
     }
 }
 
