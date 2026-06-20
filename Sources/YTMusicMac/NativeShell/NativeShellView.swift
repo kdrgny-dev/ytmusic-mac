@@ -414,9 +414,12 @@ private struct MainContent: View {
     var body: some View {
         ZStack {
             bg.ignoresSafeArea()
-            if let p = vm.selectedPlaylist {
+            switch vm.mainSection {
+            case .home:
+                HomeView(vm: vm)
+            case .playlist(let p):
                 PlaylistDetailView(playlist: p, vm: vm)
-            } else {
+            case .empty:
                 emptyState
             }
         }
@@ -428,12 +431,186 @@ private struct MainContent: View {
             Image(systemName: "music.note.list")
                 .font(.system(size: 36, weight: .light))
                 .foregroundColor(.white.opacity(0.35))
-            Text("Pick a playlist")
+            Text("Pick a playlist or open Home")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.white.opacity(0.85))
-            Text("Choose one from the sidebar to see its tracks.")
+            Text("Sidebar → Home for recommendations.")
                 .font(.system(size: 12))
                 .foregroundColor(.white.opacity(0.45))
+        }
+    }
+}
+
+// MARK: - Home view
+
+private struct HomeView: View {
+    @ObservedObject var vm: NativeShellViewModel
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 28) {
+                header
+                if vm.homeLoading && vm.homeShelves.isEmpty {
+                    loadingState
+                } else if let msg = vm.homeError, vm.homeShelves.isEmpty {
+                    errorState(msg)
+                } else {
+                    ForEach(vm.homeShelves) { shelf in
+                        ShelfRow(shelf: shelf, vm: vm)
+                    }
+                    Spacer(minLength: 40)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Home")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.white)
+                Text("Mixed for you, fresh from YT Music")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.55))
+            }
+            Spacer()
+            Button(action: { vm.reloadHome() }) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 32, height: 32)
+                    .background(Color.white.opacity(0.08))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Refresh")
+        }
+    }
+
+    private var loadingState: some View {
+        VStack(spacing: 8) {
+            ProgressView().controlSize(.large)
+            Text("Loading recommendations…")
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.5))
+        }
+        .frame(maxWidth: .infinity, minHeight: 240)
+    }
+
+    private func errorState(_ msg: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 22))
+                .foregroundColor(.white.opacity(0.4))
+            Text(msg)
+                .font(.system(size: 13))
+                .foregroundColor(.white.opacity(0.6))
+            Button("Retry") { vm.reloadHome() }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule().fill(Color.white.opacity(0.1))
+                )
+        }
+        .frame(maxWidth: .infinity, minHeight: 240)
+    }
+}
+
+private struct ShelfRow: View {
+    let shelf: NativeShellViewModel.HomeShelf
+    @ObservedObject var vm: NativeShellViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                if let s = shelf.subtitle, !s.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(s.uppercased())
+                            .font(.system(size: 10, weight: .semibold))
+                            .tracking(0.5)
+                            .foregroundColor(.white.opacity(0.5))
+                        Text(shelf.title)
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                } else {
+                    Text(shelf.title)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                Spacer()
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 14) {
+                    ForEach(shelf.items) { card in
+                        Button(action: { vm.openHomeCard(card) }) {
+                            HomeCardView(card: card)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.bottom, 4)
+            }
+        }
+    }
+}
+
+private struct HomeCardView: View {
+    let card: NativeShellViewModel.HomeCard
+    @State private var hovered: Bool = false
+
+    private var coverShape: AnyShape {
+        card.kind == .artist
+            ? AnyShape(Circle())
+            : AnyShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            cover
+                .frame(width: 150, height: 150)
+                .clipShape(coverShape)
+                .overlay(
+                    coverShape.stroke(Color.white.opacity(hovered ? 0.18 : 0), lineWidth: 1)
+                )
+                .scaleEffect(hovered ? 1.03 : 1.0)
+                .shadow(color: .black.opacity(hovered ? 0.5 : 0.0), radius: 12, y: 6)
+                .animation(.easeOut(duration: 0.15), value: hovered)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(card.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Text(card.subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.55))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+            .frame(width: 150, alignment: .leading)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+    }
+
+    @ViewBuilder
+    private var cover: some View {
+        if let s = card.thumbnailURL, let url = URL(string: s) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let img):
+                    img.resizable().aspectRatio(contentMode: .fill)
+                default:
+                    Color.white.opacity(0.06)
+                }
+            }
+        } else {
+            Color.white.opacity(0.06)
         }
     }
 }

@@ -39,6 +39,42 @@ final class NativeShellViewModel: ObservableObject {
     @Published private(set) var loadingTracks = false
     @Published private(set) var tracksError: String?
 
+    /// A single horizontal carousel on the home/explore page. Title +
+    /// the cards inside it.
+    struct HomeShelf: Identifiable {
+        let id: String
+        let title: String
+        let subtitle: String?
+        let items: [HomeCard]
+    }
+
+    /// Cards in a home shelf. Reuses SearchKind so the click router can
+    /// dispatch the same way regardless of where the card came from.
+    struct HomeCard: Identifiable, Hashable {
+        let id: String        // videoId for songs, browseId for the rest
+        let kind: SearchKind
+        let title: String
+        let subtitle: String
+        let thumbnailURL: String?
+        /// For songs, the row may include a playlistId so playback inherits
+        /// the queue context the shelf is seeded with.
+        let playlistId: String?
+    }
+
+    /// Which view fills the main content area. Mutually exclusive — the
+    /// shell only ever shows one. Drives MainContent's switch.
+    enum MainSection: Equatable {
+        case empty
+        case home
+        case playlist(PlaylistSummary)
+    }
+    @Published private(set) var mainSection: MainSection = .empty
+
+    @Published private(set) var homeShelves: [HomeShelf] = []
+    @Published private(set) var homeLoading: Bool = false
+    @Published private(set) var homeError: String?
+    private var homeLoaded: Bool = false
+
     struct QueueItem: Identifiable, Hashable {
         let id: Int        // index — stable per render, matches JS-side index
         let videoId: String?
@@ -152,9 +188,37 @@ final class NativeShellViewModel: ObservableObject {
     /// to look at its contents.
     func openPlaylist(_ p: PlaylistSummary) {
         selectedPlaylist = p
+        mainSection = .playlist(p)
         tracks = []
         tracksError = nil
         Task { await loadTracks(for: p) }
+    }
+
+    /// Click handler for a home shelf card — routes by kind so each card
+    /// type lands in the right place (song plays, playlist opens detail,
+    /// album/artist navigate the WebView until they get native views).
+    func openHomeCard(_ c: HomeCard) {
+        switch c.kind {
+        case .song:
+            // Include the playlistId when YT gave us one — keeps the
+            // shelf's queue context (e.g. "Quick picks" plays through
+            // the rest of the shelf instead of starting a fresh radio).
+            var urlStr = "https://music.youtube.com/watch?v=\(c.id)"
+            if let plid = c.playlistId, !plid.isEmpty {
+                urlStr += "&list=\(plid)"
+            }
+            if let url = URL(string: urlStr) {
+                WebViewHolder.shared.webView?.load(URLRequest(url: url))
+            }
+        case .playlist:
+            let p = PlaylistSummary(id: c.id, title: c.title, thumbnailURL: c.thumbnailURL)
+            openPlaylist(p)
+        case .album, .artist:
+            let urlStr = "https://music.youtube.com/browse/\(c.id)"
+            if let url = URL(string: urlStr) {
+                WebViewHolder.shared.webView?.load(URLRequest(url: url))
+            }
+        }
     }
 
     private func loadTracks(for p: PlaylistSummary) async {
@@ -220,15 +284,34 @@ final class NativeShellViewModel: ObservableObject {
     /// Used by the sidebar Home / Explore items so the queue context
     /// + autoplay seed line up with what the user is browsing.
     func goHome() {
-        navigateWebView(to: "https://music.youtube.com/")
+        mainSection = .home
         selectedPlaylist = nil
-        showToast("Home")
+        // Lazy-load: fetch once per session, refresh on explicit user action.
+        if !homeLoaded { Task { await loadHome() } }
+    }
+
+    func reloadHome() { Task { await loadHome() } }
+
+    private func loadHome() async {
+        guard !homeLoading else { return }
+        homeLoading = true
+        defer { homeLoading = false }
+        do {
+            let data = try await client.browse(browseId: "FEmusic_home")
+            let shelves = HomeParser.parse(data: data)
+            homeShelves = shelves
+            homeError = shelves.isEmpty ? "No content right now." : nil
+            homeLoaded = true
+        } catch {
+            homeError = "Couldn't load home."
+        }
     }
 
     func goExplore() {
-        navigateWebView(to: "https://music.youtube.com/explore")
-        selectedPlaylist = nil
-        showToast("Explore")
+        // Explore is a richer second tab; route to home until it has its
+        // own parser. Keeps the sidebar item interactive.
+        goHome()
+        showToast("Explore native view coming next")
     }
 
     private func navigateWebView(to urlStr: String) {
@@ -708,6 +791,173 @@ enum SearchResultsParser {
         let thumbURL = thumbs?.last?["url"] as? String
         guard !title.isEmpty else { return nil }
         return .init(id: id, kind: k, title: title, subtitle: subtitle, thumbnailURL: thumbURL)
+    }
+}
+
+/// Walks the FEmusic_home browse response and pulls every
+/// `musicCarouselShelfRenderer` — one shelf per horizontal carousel on
+/// the YT Music home page ("Quick picks", "Listen again",
+/// "Mixed for you", "New releases", artist mixes, etc.). Each shelf has
+/// a title pulled from its header and a list of HomeCards extracted from
+/// either musicTwoRowItemRenderer (artwork-led cards) or
+/// musicResponsiveListItemRenderer (song rows).
+enum HomeParser {
+    static func parse(data: Data) -> [NativeShellViewModel.HomeShelf] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return [] }
+        var shelves: [NativeShellViewModel.HomeShelf] = []
+        var idx = 0
+        walk(json) { dict in
+            guard let renderer = dict["musicCarouselShelfRenderer"] as? [String: Any]
+            else { return }
+            if let shelf = extractShelf(renderer, index: idx) {
+                shelves.append(shelf)
+                idx += 1
+            }
+        }
+        return shelves
+    }
+
+    private static func walk(_ node: Any, visit: ([String: Any]) -> Void) {
+        if let dict = node as? [String: Any] {
+            visit(dict)
+            for value in dict.values { walk(value, visit: visit) }
+        } else if let arr = node as? [Any] {
+            for value in arr { walk(value, visit: visit) }
+        }
+    }
+
+    private static func extractShelf(_ renderer: [String: Any],
+                                     index: Int) -> NativeShellViewModel.HomeShelf? {
+        let header = renderer["header"] as? [String: Any]
+        let (title, subtitle) = extractHeader(header)
+        let contents = (renderer["contents"] as? [[String: Any]]) ?? []
+        let cards: [NativeShellViewModel.HomeCard] = contents.compactMap { item in
+            if let r = item["musicTwoRowItemRenderer"] as? [String: Any] {
+                return extractTwoRow(r)
+            }
+            if let r = item["musicResponsiveListItemRenderer"] as? [String: Any] {
+                return extractList(r)
+            }
+            return nil
+        }
+        guard !title.isEmpty, !cards.isEmpty else { return nil }
+        return .init(id: "shelf-\(index)-\(title)",
+                     title: title,
+                     subtitle: subtitle,
+                     items: cards)
+    }
+
+    /// Carousel headers live behind a `musicCarouselShelfBasicHeaderRenderer`
+    /// which has a `title.runs[*].text` for the section name and an
+    /// optional `strapline.runs[*].text` (e.g. "Quick picks").
+    private static func extractHeader(_ header: [String: Any]?) -> (title: String, subtitle: String?) {
+        guard let header = header,
+              let basic = header["musicCarouselShelfBasicHeaderRenderer"] as? [String: Any]
+        else { return ("", nil) }
+        let titleRuns = ((basic["title"] as? [String: Any])?["runs"] as? [[String: Any]]) ?? []
+        let title = titleRuns.compactMap { $0["text"] as? String }.joined()
+        let strap = ((basic["strapline"] as? [String: Any])?["runs"] as? [[String: Any]])?
+            .compactMap { $0["text"] as? String }
+            .joined()
+        return (title, strap?.isEmpty == false ? strap : nil)
+    }
+
+    private static func extractTwoRow(_ renderer: [String: Any]) -> NativeShellViewModel.HomeCard? {
+        let title = ((renderer["title"] as? [String: Any])?["runs"] as? [[String: Any]])?
+            .compactMap { $0["text"] as? String }.joined() ?? ""
+        let subtitleRuns = ((renderer["subtitle"] as? [String: Any])?["runs"] as? [[String: Any]]) ?? []
+        let subtitle = subtitleRuns.compactMap { $0["text"] as? String }.joined()
+        let subtitleFirst = subtitleRuns.first?["text"] as? String
+
+        let nav = renderer["navigationEndpoint"] as? [String: Any]
+        let browseId = (nav?["browseEndpoint"] as? [String: Any])?["browseId"] as? String
+        let watchEndpoint = nav?["watchEndpoint"] as? [String: Any]
+        let videoId = watchEndpoint?["videoId"] as? String
+        let watchPlaylistId = (nav?["watchPlaylistEndpoint"] as? [String: Any])?["playlistId"] as? String
+
+        let prefix = browseId.flatMap { String($0.prefix(4)) }
+        guard let kind = kind(subtitleFirst: subtitleFirst,
+                              hasVideoId: videoId != nil,
+                              browseIdPrefix: prefix,
+                              hasPlaylistEndpoint: watchPlaylistId != nil) else { return nil }
+        let id: String
+        switch kind {
+        case .song: id = videoId ?? watchPlaylistId ?? ""
+        default: id = browseId ?? watchPlaylistId ?? ""
+        }
+        guard !id.isEmpty else { return nil }
+        let thumbs = ((renderer["thumbnailRenderer"] as? [String: Any])?["musicThumbnailRenderer"]
+            as? [String: Any]).flatMap {
+                ($0["thumbnail"] as? [String: Any])?["thumbnails"] as? [[String: Any]]
+            }
+        let thumbURL = thumbs?.last?["url"] as? String
+        let playlistId = watchEndpoint?["playlistId"] as? String
+        return .init(id: id, kind: kind, title: title, subtitle: subtitle,
+                     thumbnailURL: thumbURL, playlistId: playlistId)
+    }
+
+    private static func extractList(_ renderer: [String: Any]) -> NativeShellViewModel.HomeCard? {
+        let flex = (renderer["flexColumns"] as? [[String: Any]]) ?? []
+        let title = textInFlexColumn(flex, index: 0)
+        let subtitle = textInFlexColumn(flex, index: 1)
+        let subtitleFirst = firstRunInFlexColumn(flex, index: 1)
+        let videoId = (renderer["playlistItemData"] as? [String: Any])?["videoId"] as? String
+        let prefix: String? = nil // list rows are almost always songs here
+        guard let kind = kind(subtitleFirst: subtitleFirst,
+                              hasVideoId: videoId != nil,
+                              browseIdPrefix: prefix,
+                              hasPlaylistEndpoint: false) else { return nil }
+        guard let vid = videoId, !title.isEmpty else { return nil }
+        let thumbs = ((renderer["thumbnail"] as? [String: Any])?["musicThumbnailRenderer"]
+            as? [String: Any]).flatMap {
+                ($0["thumbnail"] as? [String: Any])?["thumbnails"] as? [[String: Any]]
+            }
+        let thumbURL = thumbs?.last?["url"] as? String
+        // Try to inherit the shelf's playlistId for queue context.
+        let watch = (renderer["navigationEndpoint"] as? [String: Any])?["watchEndpoint"] as? [String: Any]
+        let playlistId = watch?["playlistId"] as? String
+        return .init(id: vid, kind: kind, title: title, subtitle: subtitle,
+                     thumbnailURL: thumbURL, playlistId: playlistId)
+    }
+
+    private static func kind(subtitleFirst: String?,
+                             hasVideoId: Bool,
+                             browseIdPrefix: String?,
+                             hasPlaylistEndpoint: Bool) -> NativeShellViewModel.SearchKind? {
+        let label = subtitleFirst?.lowercased() ?? ""
+        switch label {
+        case "song", "video", "single", "ep": return .song
+        case "album": return .album
+        case "playlist", "community playlist", "featured playlist": return .playlist
+        case "artist", "profile": return .artist
+        default: break
+        }
+        if hasVideoId { return .song }
+        if hasPlaylistEndpoint { return .playlist }
+        switch browseIdPrefix {
+        case "UC": return .artist
+        case "MPRE", "OLAK": return .album
+        case "VLPL", "VLRD": return .playlist
+        default: return nil
+        }
+    }
+
+    private static func textInFlexColumn(_ columns: [[String: Any]], index: Int) -> String {
+        guard columns.indices.contains(index),
+              let inner = columns[index]["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any],
+              let text = inner["text"] as? [String: Any],
+              let runs = text["runs"] as? [[String: Any]]
+        else { return "" }
+        return runs.compactMap { $0["text"] as? String }.joined()
+    }
+
+    private static func firstRunInFlexColumn(_ columns: [[String: Any]], index: Int) -> String? {
+        guard columns.indices.contains(index),
+              let inner = columns[index]["musicResponsiveListItemFlexColumnRenderer"] as? [String: Any],
+              let text = inner["text"] as? [String: Any],
+              let runs = text["runs"] as? [[String: Any]]
+        else { return nil }
+        return runs.first?["text"] as? String
     }
 }
 
