@@ -679,9 +679,25 @@ private struct CarouselSection<Item: Identifiable, Content: View>: View where It
     /// state. Updated by the chevrons; trackpad scroll doesn't (and
     /// doesn't need to — we just want sane enable/disable).
     @State private var currentIndex: Int = 0
+    /// Measured scroll-row width. 0 until the first onAppear fires.
+    @State private var rowWidth: CGFloat = 0
 
-    private var canLeft: Bool  { currentIndex > 0 }
-    private var canRight: Bool { currentIndex < max(0, items.count - 1) }
+    private var contentWidth: CGFloat {
+        CGFloat(items.count) * estimatedItemWidth
+    }
+    /// True when the row actually overflows its container. Until the
+    /// first GeometryReader update lands (rowWidth still 0) we fall
+    /// back to a generous 1400px assumption — any normal window is
+    /// narrower than that, so a row whose content exceeds 1400px will
+    /// definitely overflow.
+    private var needsScroll: Bool {
+        if rowWidth > 0 {
+            return contentWidth > rowWidth + 1
+        }
+        return contentWidth > 1400
+    }
+    private var canLeft: Bool  { needsScroll && currentIndex > 0 }
+    private var canRight: Bool { needsScroll && currentIndex < max(0, items.count - 1) }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -695,6 +711,17 @@ private struct CarouselSection<Item: Identifiable, Content: View>: View where It
                     }
                     .padding(.bottom, 4)
                 }
+                .overlay(
+                    // Zero-sized measurement layer — reports the ScrollView's
+                    // own width, which is what content has to fit inside.
+                    GeometryReader { geo in
+                        Color.clear
+                            .onAppear { rowWidth = geo.size.width }
+                            .onChange(of: geo.size.width) { newValue in
+                                rowWidth = newValue
+                            }
+                    }
+                )
             }
         }
     }
@@ -713,8 +740,10 @@ private struct CarouselSection<Item: Identifiable, Content: View>: View where It
                     .foregroundColor(.white)
             }
             Spacer()
-            navChevron(.leftward, proxy: proxy)
-            navChevron(.rightward, proxy: proxy)
+            if needsScroll {
+                navChevron(.leftward, proxy: proxy)
+                navChevron(.rightward, proxy: proxy)
+            }
         }
     }
 
