@@ -89,10 +89,12 @@ private struct SearchOverlay: View {
             VStack(spacing: 0) {
                 searchField
                 Divider().background(Color.white.opacity(0.08))
+                tabBar
+                Divider().background(Color.white.opacity(0.08))
                 resultsArea
             }
-            .frame(maxWidth: 640)
-            .frame(maxHeight: 520)
+            .frame(maxWidth: 680)
+            .frame(maxHeight: 560)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color(red: 0.08, green: 0.08, blue: 0.10))
@@ -106,6 +108,28 @@ private struct SearchOverlay: View {
         .onAppear { focused = true }
     }
 
+    private var tabBar: some View {
+        HStack(spacing: 4) {
+            ForEach(NativeShellViewModel.SearchKind.allCases) { kind in
+                Button(action: { vm.searchTab = kind }) {
+                    Text(kind.label)
+                        .font(.system(size: 12, weight: vm.searchTab == kind ? .semibold : .regular))
+                        .foregroundColor(vm.searchTab == kind ? .white : .white.opacity(0.55))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(vm.searchTab == kind ? Color.white.opacity(0.10) : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
     private var searchField: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
@@ -117,7 +141,7 @@ private struct SearchOverlay: View {
                 .foregroundColor(.white)
                 .focused($focused)
                 .onSubmit {
-                    if let first = vm.searchSongs.first { vm.openSearchResult(first) }
+                    if let first = vm.searchResults.first { vm.openSearchResult(first) }
                 }
             if vm.searchLoading {
                 ProgressView().controlSize(.small)
@@ -152,12 +176,12 @@ private struct SearchOverlay: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 28, weight: .light))
                     .foregroundColor(.white.opacity(0.25))
-                Text("Type to search")
+                Text("Type to search \(vm.searchTab.label.lowercased())")
                     .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.4))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let msg = vm.searchError, !vm.hasSearchResults, !vm.searchLoading {
+        } else if let msg = vm.searchError, vm.searchResults.isEmpty, !vm.searchLoading {
             VStack(spacing: 4) {
                 Text(msg)
                     .font(.system(size: 12))
@@ -166,35 +190,16 @@ private struct SearchOverlay: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                LazyVStack(spacing: 12, pinnedViews: []) {
-                    section("Songs", items: vm.searchSongs)
-                    section("Playlists", items: vm.searchPlaylists)
-                    section("Albums", items: vm.searchAlbums)
-                    section("Artists", items: vm.searchArtists)
+                LazyVStack(spacing: 0) {
+                    ForEach(vm.searchResults) { r in
+                        Button(action: { vm.openSearchResult(r) }) {
+                            SearchResultRow(result: r)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 6)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func section(_ title: String,
-                         items: [NativeShellViewModel.SearchResult]) -> some View {
-        if !items.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.6)
-                    .foregroundColor(.white.opacity(0.5))
-                    .padding(.horizontal, 10)
-                    .padding(.top, 6)
-                ForEach(items) { r in
-                    Button(action: { vm.openSearchResult(r) }) {
-                        SearchResultRow(result: r)
-                    }
-                    .buttonStyle(.plain)
-                }
             }
         }
     }

@@ -52,8 +52,31 @@ final class NativeShellViewModel: ObservableObject {
     @Published private(set) var queuePlayingIndex: Int = -1
     @Published var isQueueVisible: Bool = false
 
-    enum SearchKind: String {
-        case song, album, playlist, artist
+    enum SearchKind: String, CaseIterable, Identifiable {
+        case playlist, song, artist, album
+        var id: String { rawValue }
+
+        /// Title shown in the tab picker.
+        var label: String {
+            switch self {
+            case .playlist: return "Playlists"
+            case .song:     return "Songs"
+            case .artist:   return "Artists"
+            case .album:    return "Albums"
+            }
+        }
+
+        /// YT's well-known `params` token that scopes /search to one
+        /// facet. Lets us pull the full filtered list (vs. the mixed
+        /// landing page which caps each shelf at a handful).
+        var filterParam: String {
+            switch self {
+            case .song:     return "EgWKAQIIAWoKEAkQBRAKEAMQBA=="
+            case .album:    return "EgWKAQIYAWoKEAkQBRAKEAMQBA=="
+            case .artist:   return "EgWKAQIgAWoKEAkQBRAKEAMQBA=="
+            case .playlist: return "EgeKAQQoAEABagwQDhAKEAMQBBAJEAU="
+            }
+        }
     }
 
     struct SearchResult: Identifiable, Hashable {
@@ -68,14 +91,21 @@ final class NativeShellViewModel: ObservableObject {
     @Published var searchQuery: String = "" {
         didSet { scheduleSearch() }
     }
-    @Published private(set) var searchSongs: [SearchResult] = []
-    @Published private(set) var searchPlaylists: [SearchResult] = []
-    @Published private(set) var searchAlbums: [SearchResult] = []
-    @Published private(set) var searchArtists: [SearchResult] = []
+    @Published var searchTab: SearchKind = .playlist {
+        didSet { scheduleSearch() }
+    }
+    /// Cached results per (query, tab) so flipping tabs is instant on
+    /// re-visit. Cleared on overlay close.
+    private var searchCache: [String: [SearchResult]] = [:]
+    @Published private(set) var searchResults: [SearchResult] = []
     @Published private(set) var searchLoading: Bool = false
     @Published private(set) var searchError: String?
 
     private var searchTask: Task<Void, Never>?
+
+    private func cacheKey(query: String, tab: SearchKind) -> String {
+        "\(tab.rawValue)|\(query.lowercased())"
+    }
 
     private let auth = AuthSession()
     private let client: InnerTubeClient
@@ -210,18 +240,11 @@ final class NativeShellViewModel: ObservableObject {
         isSearchVisible.toggle()
         if !isSearchVisible {
             searchQuery = ""
-            searchSongs = []
-            searchPlaylists = []
-            searchAlbums = []
-            searchArtists = []
+            searchResults = []
+            searchCache.removeAll()
             searchError = nil
+            searchTab = .playlist
         }
-    }
-
-    /// True when any of the facet arrays has hits.
-    var hasSearchResults: Bool {
-        !(searchSongs.isEmpty && searchPlaylists.isEmpty &&
-          searchAlbums.isEmpty && searchArtists.isEmpty)
     }
 
     /// Debounce typing so we don't fire a /search call per keystroke.
@@ -229,33 +252,44 @@ final class NativeShellViewModel: ObservableObject {
         searchTask?.cancel()
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
-            searchSongs = []
-            searchPlaylists = []
-            searchAlbums = []
-            searchArtists = []
+            searchResults = []
             searchError = nil
             searchLoading = false
             return
         }
+        // Cache hit → flip immediately, no network.
+        let key = cacheKey(query: query, tab: searchTab)
+        if let cached = searchCache[key] {
+            searchResults = cached
+            searchError = cached.isEmpty ? "No results." : nil
+            return
+        }
+        let tab = searchTab
         searchTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
-            await runSearch(query: query)
+            await runSearch(query: query, tab: tab)
         }
     }
 
-    private func runSearch(query: String) async {
+    private func runSearch(query: String, tab: SearchKind) async {
         searchLoading = true
         defer { searchLoading = false }
         do {
-            let data = try await client.search(query: query)
-            let all = SearchResultsParser.parse(data: data)
+            // Filtered call — YT returns ALL items in that one facet
+            // instead of capping each shelf in the mixed landing response.
+            let data = try await client.search(query: query, params: tab.filterParam)
+            let parsed = SearchResultsParser.parse(data: data).filter { $0.kind == tab }
             guard !Task.isCancelled else { return }
-            searchSongs = Array(all.filter { $0.kind == .song }.prefix(8))
-            searchPlaylists = Array(all.filter { $0.kind == .playlist }.prefix(6))
-            searchAlbums = Array(all.filter { $0.kind == .album }.prefix(6))
-            searchArtists = Array(all.filter { $0.kind == .artist }.prefix(6))
-            searchError = hasSearchResults ? nil : "No results."
+            // Cache + display only if the user is still looking at this
+            // (query, tab) pair — otherwise drop on the floor.
+            let key = cacheKey(query: query, tab: tab)
+            searchCache[key] = parsed
+            if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query,
+               searchTab == tab {
+                searchResults = parsed
+                searchError = parsed.isEmpty ? "No results." : nil
+            }
         } catch {
             guard !Task.isCancelled else { return }
             searchError = "Search failed"
