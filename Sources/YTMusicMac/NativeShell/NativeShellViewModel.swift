@@ -84,9 +84,17 @@ final class NativeShellViewModel: ObservableObject {
     @Published private(set) var canGoBack: Bool = false
     @Published private(set) var canGoForward: Bool = false
 
-    private func pushHistory(_ from: MainSection) {
-        guard from != mainSection else { return }
-        backStack.append(from)
+    /// Push the CURRENT mainSection onto the back stack so we can return
+    /// to it. Caller should invoke this BEFORE mutating mainSection. The
+    /// previous version took the value as a parameter and guarded with
+    /// `from != mainSection` — but `from` was always the current
+    /// mainSection because callers passed it in, so the guard
+    /// short-circuited every push and the stack stayed empty.
+    private func pushHistory() {
+        // De-dup consecutive entries: if the top of the stack already
+        // equals where we are, no need to re-push.
+        if backStack.last == mainSection { return }
+        backStack.append(mainSection)
         if backStack.count > 50 { backStack.removeFirst(backStack.count - 50) }
         forwardStack.removeAll()
         canGoBack = !backStack.isEmpty
@@ -270,7 +278,7 @@ final class NativeShellViewModel: ObservableObject {
     /// engine doesn't reshuffle just because someone clicked a playlist
     /// to look at its contents.
     func openPlaylist(_ p: PlaylistSummary) {
-        pushHistory(mainSection)
+        pushHistory()
         selectedPlaylist = p
         mainSection = .playlist(p)
         tracks = []
@@ -283,7 +291,7 @@ final class NativeShellViewModel: ObservableObject {
     /// implementation navigated the hidden WebView which the user couldn't
     /// see, so clicks felt broken.
     func openGenre(_ g: GenreChip) {
-        pushHistory(mainSection)
+        pushHistory()
         mainSection = .category(g)
         categoryTitle = g.title
         Task { await loadCategory(g) }
@@ -398,7 +406,7 @@ final class NativeShellViewModel: ObservableObject {
     /// Used by the sidebar Home / Explore items so the queue context
     /// + autoplay seed line up with what the user is browsing.
     func goHome() {
-        pushHistory(mainSection)
+        pushHistory()
         mainSection = .home
         selectedPlaylist = nil
         // Lazy-load: fetch once per session, refresh on explicit user action.

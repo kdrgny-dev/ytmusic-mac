@@ -55,7 +55,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleSideButton(_ event: NSEvent) -> Bool {
         guard Preferences.shared.nativeUIMode else { return false }
         let btn = event.buttonNumber
-        FileHandle.standardError.write(Data("[mouseNav] button=\(btn)\n".utf8))
         // Standard macOS convention: button 3 = back, button 4 = forward.
         // Some drivers (rare) use 4/5 instead — we treat button 5 as fwd
         // and keep button 4 as either depending on whether we saw a 3 first.
@@ -148,10 +147,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ctrl.addItem(item("Toggle Queue Panel", #selector(AppActions.toggleQueue), target: AppActions.shared,
                           key: "e", mods: [.command]))
         ctrl.addItem(.separator())
+        // Cmd+Left / Cmd+Right — Safari's other standard for back/forward,
+        // and the only one that survives non-US keyboard layouts (on a
+        // Turkish-Q `[` maps to `Ğ` and `]` to `Ü`, which is why the
+        // bracket shortcuts looked nonsense).
         ctrl.addItem(item("Back", #selector(AppActions.goBack), target: AppActions.shared,
-                          key: "[", mods: [.command]))
+                          key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
+                          mods: [.command]))
         ctrl.addItem(item("Forward", #selector(AppActions.goForward), target: AppActions.shared,
-                          key: "]", mods: [.command]))
+                          key: String(UnicodeScalar(NSRightArrowFunctionKey)!),
+                          mods: [.command]))
         ctrl.addItem(item("Reload", #selector(AppActions.reload), target: AppActions.shared,
                           key: "r", mods: [.command]))
         ctrl.addItem(.separator())
