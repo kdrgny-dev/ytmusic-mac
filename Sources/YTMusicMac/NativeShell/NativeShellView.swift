@@ -417,7 +417,7 @@ private struct MainContent: View {
     @ObservedObject var vm: NativeShellViewModel
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             bg.ignoresSafeArea()
             switch vm.mainSection {
             case .home:
@@ -429,6 +429,12 @@ private struct MainContent: View {
             case .empty:
                 emptyState
             }
+            // Floating back/forward — always visible in the top-left of
+            // the main area. Last-resort affordance when mouse buttons
+            // and keyboard shortcuts fail (driver swallowing, etc.).
+            NavButtons(vm: vm)
+                .padding(.leading, 12)
+                .padding(.top, 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -445,6 +451,46 @@ private struct MainContent: View {
                 .font(.system(size: 12))
                 .foregroundColor(.white.opacity(0.45))
         }
+    }
+}
+
+// MARK: - Floating nav buttons
+
+private struct NavButtons: View {
+    @ObservedObject var vm: NativeShellViewModel
+
+    var body: some View {
+        HStack(spacing: 6) {
+            button(systemName: "chevron.left",
+                   enabled: vm.canGoBack,
+                   help: "Geri (⌘ ←)") { vm.goBack() }
+            button(systemName: "chevron.right",
+                   enabled: vm.canGoForward,
+                   help: "İleri (⌘ →)") { vm.goForward() }
+        }
+    }
+
+    private func button(systemName: String,
+                        enabled: Bool,
+                        help: String,
+                        action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.white.opacity(enabled ? 0.9 : 0.3))
+                .frame(width: 30, height: 30)
+                .background(
+                    Circle()
+                        .fill(Color.black.opacity(0.45))
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(enabled ? 0.18 : 0.08), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .help(help)
     }
 }
 

@@ -20,27 +20,51 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
     }
 
-    /// NSWindow subclass that intercepts mouse side-buttons before they
-    /// reach the responder chain. Going through sendEvent is the only way
-    /// to reliably catch button 3 / 4 — NSEvent.addLocalMonitorForEvents
-    /// doesn't fire when the hidden WebView's NSResponder grabs the event
-    /// first. macOS guarantees sendEvent is called for every event on its
-    /// way INTO the window, so this catches them no matter what.
+    /// NSWindow subclass that intercepts back/forward navigation events
+    /// before they reach the responder chain. Three paths because there's
+    /// no single source of truth across mice + keyboards + drivers:
+    ///   - mouse side-buttons (raw NSEvent.otherMouseDown, buttons 3/4/5)
+    ///   - command + arrow / command + [ / command + ] keystrokes
+    ///   - layout-tolerant via charactersIgnoringModifiers AND keyCode
+    /// sendEvent runs for every event INTO the window, before any responder
+    /// chain dispatch, so this catches them even when the hidden WebView
+    /// would otherwise grab them first.
     private final class MouseInterceptingWindow: NSWindow {
         override func sendEvent(_ event: NSEvent) {
-            if event.type == .otherMouseDown,
-               Preferences.shared.nativeUIMode {
+            if Preferences.shared.nativeUIMode {
+                if handleNavEvent(event) { return }
+            }
+            super.sendEvent(event)
+        }
+
+        private func handleNavEvent(_ event: NSEvent) -> Bool {
+            switch event.type {
+            case .otherMouseDown:
                 switch event.buttonNumber {
                 case 3:
                     NativeShellViewModel.shared.goBack()
-                    return
+                    return true
                 case 4, 5:
                     NativeShellViewModel.shared.goForward()
-                    return
-                default: break
+                    return true
+                default: return false
                 }
+            case .keyDown where event.modifierFlags.contains(.command):
+                // keyCode is layout-independent (the physical key on the
+                // keyboard). 123 = left arrow, 124 = right arrow,
+                // 33 = `[` on US (becomes Ğ on Turkish-Q),
+                // 30 = `]` on US (becomes Ü on Turkish-Q).
+                switch event.keyCode {
+                case 123, 33:   // ⌘ + ←  or  ⌘ + [
+                    NativeShellViewModel.shared.goBack()
+                    return true
+                case 124, 30:   // ⌘ + →  or  ⌘ + ]
+                    NativeShellViewModel.shared.goForward()
+                    return true
+                default: return false
+                }
+            default: return false
             }
-            super.sendEvent(event)
         }
     }
 
