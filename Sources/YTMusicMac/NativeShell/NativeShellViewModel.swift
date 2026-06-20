@@ -415,6 +415,12 @@ final class NativeShellViewModel: ObservableObject {
         }
     }
 
+    /// True when the playlist is already in the user's library — i.e.
+    /// present in `playlists`. Drives the Save/Remove button toggle.
+    func isPlaylistSaved(_ p: PlaylistSummary) -> Bool {
+        playlists.contains(where: { $0.id == p.id })
+    }
+
     /// Save a playlist to the user's library. Routes through the like
     /// endpoint with a playlistId target — same primitive YT's own
     /// "Save to library" button uses. Reloads sidebar on success so the
@@ -430,6 +436,23 @@ final class NativeShellViewModel: ObservableObject {
                 showToast("Save failed (HTTP \(code))")
             } catch {
                 showToast("Save failed")
+            }
+        }
+    }
+
+    /// Inverse of save — drop the playlist from the user's library.
+    /// Uses the like/removelike endpoint with a playlistId target.
+    func removePlaylistFromLibrary(_ p: PlaylistSummary) {
+        Task {
+            do {
+                let bareId = p.id.hasPrefix("VL") ? String(p.id.dropFirst(2)) : p.id
+                _ = try await client.removePlaylist(playlistId: bareId)
+                showToast("Removed “\(p.title)” from library")
+                await loadPlaylists()
+            } catch InnerTubeClient.APIError.httpStatus(let code, _) {
+                showToast("Remove failed (HTTP \(code))")
+            } catch {
+                showToast("Remove failed")
             }
         }
     }

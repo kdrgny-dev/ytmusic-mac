@@ -506,11 +506,18 @@ private struct PlaylistDetailView: View {
     }
 
     private var saveButton: some View {
-        Button(action: { vm.savePlaylistToLibrary(playlist) }) {
+        let saved = vm.isPlaylistSaved(playlist)
+        return Button(action: {
+            if saved {
+                vm.removePlaylistFromLibrary(playlist)
+            } else {
+                vm.savePlaylistToLibrary(playlist)
+            }
+        }) {
             HStack(spacing: 6) {
-                Image(systemName: "plus.circle.fill")
+                Image(systemName: saved ? "checkmark.circle.fill" : "plus.circle.fill")
                     .font(.system(size: 13))
-                Text("Save")
+                Text(saved ? "Saved" : "Save")
                     .font(.system(size: 12, weight: .semibold))
             }
             .foregroundColor(.white)
@@ -518,15 +525,15 @@ private struct PlaylistDetailView: View {
             .padding(.vertical, 8)
             .background(
                 Capsule(style: .continuous)
-                    .fill(Color.white.opacity(0.12))
+                    .fill(saved ? Color.accentColor.opacity(0.85) : Color.white.opacity(0.12))
             )
             .overlay(
                 Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                    .stroke(saved ? Color.clear : Color.white.opacity(0.18), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
-        .help("Save this playlist to your library")
+        .help(saved ? "Remove from your library" : "Save to your library")
     }
 
     @ViewBuilder
