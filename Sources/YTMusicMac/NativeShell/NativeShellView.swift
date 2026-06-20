@@ -111,13 +111,13 @@ private struct SearchOverlay: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14))
                 .foregroundColor(.white.opacity(0.5))
-            TextField("Search songs, artists, albums…", text: $vm.searchQuery)
+            TextField("Search songs, artists, albums, playlists…", text: $vm.searchQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 16))
                 .foregroundColor(.white)
                 .focused($focused)
                 .onSubmit {
-                    if let first = vm.searchResults.first { vm.playSearchResult(first) }
+                    if let first = vm.searchSongs.first { vm.openSearchResult(first) }
                 }
             if vm.searchLoading {
                 ProgressView().controlSize(.small)
@@ -157,7 +157,7 @@ private struct SearchOverlay: View {
                     .foregroundColor(.white.opacity(0.4))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let msg = vm.searchError, vm.searchResults.isEmpty, !vm.searchLoading {
+        } else if let msg = vm.searchError, !vm.hasSearchResults, !vm.searchLoading {
             VStack(spacing: 4) {
                 Text(msg)
                     .font(.system(size: 12))
@@ -166,16 +166,35 @@ private struct SearchOverlay: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(vm.searchResults) { r in
-                        Button(action: { vm.playSearchResult(r) }) {
-                            SearchResultRow(result: r)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                LazyVStack(spacing: 12, pinnedViews: []) {
+                    section("Songs", items: vm.searchSongs)
+                    section("Playlists", items: vm.searchPlaylists)
+                    section("Albums", items: vm.searchAlbums)
+                    section("Artists", items: vm.searchArtists)
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 6)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func section(_ title: String,
+                         items: [NativeShellViewModel.SearchResult]) -> some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title.uppercased())
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.6)
+                    .foregroundColor(.white.opacity(0.5))
+                    .padding(.horizontal, 10)
+                    .padding(.top, 6)
+                ForEach(items) { r in
+                    Button(action: { vm.openSearchResult(r) }) {
+                        SearchResultRow(result: r)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
     }
@@ -185,17 +204,24 @@ private struct SearchResultRow: View {
     let result: NativeShellViewModel.SearchResult
     @State private var hovered: Bool = false
 
+    /// Artists are circular thumbs; everything else is a rounded square.
+    private var coverShape: AnyShape {
+        result.kind == .artist
+            ? AnyShape(Circle())
+            : AnyShape(RoundedRectangle(cornerRadius: 3))
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             cover
                 .frame(width: 40, height: 40)
-                .clipShape(RoundedRectangle(cornerRadius: 3))
+                .clipShape(coverShape)
             VStack(alignment: .leading, spacing: 2) {
                 Text(result.title)
                     .font(.system(size: 13))
                     .foregroundColor(.white)
                     .lineLimit(1)
-                Text(result.artist)
+                Text(result.subtitle)
                     .font(.system(size: 11))
                     .foregroundColor(.white.opacity(0.55))
                     .lineLimit(1)

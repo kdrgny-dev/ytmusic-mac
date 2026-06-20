@@ -52,11 +52,15 @@ final class NativeShellViewModel: ObservableObject {
     @Published private(set) var queuePlayingIndex: Int = -1
     @Published var isQueueVisible: Bool = false
 
+    enum SearchKind: String {
+        case song, album, playlist, artist
+    }
+
     struct SearchResult: Identifiable, Hashable {
-        let id: String           // videoId
+        let id: String           // videoId for songs, browseId for the rest
+        let kind: SearchKind
         let title: String
-        let artist: String
-        let album: String?
+        let subtitle: String     // artist for songs, "Album" / "Playlist" / etc. for cards
         let thumbnailURL: String?
     }
 
@@ -64,7 +68,10 @@ final class NativeShellViewModel: ObservableObject {
     @Published var searchQuery: String = "" {
         didSet { scheduleSearch() }
     }
-    @Published private(set) var searchResults: [SearchResult] = []
+    @Published private(set) var searchSongs: [SearchResult] = []
+    @Published private(set) var searchPlaylists: [SearchResult] = []
+    @Published private(set) var searchAlbums: [SearchResult] = []
+    @Published private(set) var searchArtists: [SearchResult] = []
     @Published private(set) var searchLoading: Bool = false
     @Published private(set) var searchError: String?
 
@@ -152,19 +159,23 @@ final class NativeShellViewModel: ObservableObject {
     /// Body shape: `{ items: [{title, artist, thumbnail, isPlaying, index}], playingIndex, total }`.
     func updateQueue(from body: [String: Any]) {
         let raw = (body["items"] as? [[String: Any]]) ?? []
+        // YT's DOM sometimes marks more than one queue row "selected"
+        // (live versions, alt encodings, duplicate cards). The single
+        // source of truth is the JS-computed playingIndex — we override
+        // each item's isPlaying based on that so only ONE row lights up.
+        let playingIdx = (body["playingIndex"] as? Int) ?? -1
         let mapped: [QueueItem] = raw.compactMap { dict in
             let idx = dict["index"] as? Int ?? 0
             let videoId = (dict["videoId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let title = dict["title"] as? String ?? ""
             let artist = dict["artist"] as? String ?? ""
             let thumb = dict["thumbnail"] as? String
-            let playing = dict["isPlaying"] as? Bool ?? false
             guard !title.isEmpty else { return nil }
             return QueueItem(id: idx, videoId: videoId, title: title, artist: artist,
-                             thumbnailURL: thumb, isPlaying: playing)
+                             thumbnailURL: thumb, isPlaying: idx == playingIdx)
         }
         queue = mapped
-        queuePlayingIndex = (body["playingIndex"] as? Int) ?? -1
+        queuePlayingIndex = playingIdx
     }
 
     /// Jump playback to the n-th item in the current queue.
@@ -179,9 +190,18 @@ final class NativeShellViewModel: ObservableObject {
         isSearchVisible.toggle()
         if !isSearchVisible {
             searchQuery = ""
-            searchResults = []
+            searchSongs = []
+            searchPlaylists = []
+            searchAlbums = []
+            searchArtists = []
             searchError = nil
         }
+    }
+
+    /// True when any of the facet arrays has hits.
+    var hasSearchResults: Bool {
+        !(searchSongs.isEmpty && searchPlaylists.isEmpty &&
+          searchAlbums.isEmpty && searchArtists.isEmpty)
     }
 
     /// Debounce typing so we don't fire a /search call per keystroke.
@@ -189,7 +209,10 @@ final class NativeShellViewModel: ObservableObject {
         searchTask?.cancel()
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
-            searchResults = []
+            searchSongs = []
+            searchPlaylists = []
+            searchAlbums = []
+            searchArtists = []
             searchError = nil
             searchLoading = false
             return
@@ -206,35 +229,57 @@ final class NativeShellViewModel: ObservableObject {
         defer { searchLoading = false }
         do {
             let data = try await client.search(query: query)
-            // Filter the response to a flat song list — same DOM/JSON
-            // shape we parsed for playlist tracks.
+            // Songs come from musicResponsiveListItemRenderer (TrackParser).
+            // Albums/playlists/artists come from musicTwoRowItemRenderer
+            // and are categorised by browseId prefix.
             let songs = TrackParser.parse(data: data).map {
-                SearchResult(id: $0.id,
-                             title: $0.title,
-                             artist: $0.artist,
-                             album: nil,
+                SearchResult(id: $0.id, kind: .song,
+                             title: $0.title, subtitle: $0.artist,
                              thumbnailURL: $0.thumbnailURL)
             }
+            let cards = SearchCardParser.parse(data: data)
             guard !Task.isCancelled else { return }
-            searchResults = songs
-            searchError = songs.isEmpty ? "No results." : nil
+            searchSongs = Array(songs.prefix(8))
+            searchPlaylists = cards.filter { $0.kind == .playlist }
+            searchAlbums = cards.filter { $0.kind == .album }
+            searchArtists = cards.filter { $0.kind == .artist }
+            searchError = hasSearchResults ? nil : "No results."
         } catch {
             guard !Task.isCancelled else { return }
             searchError = "Search failed"
         }
     }
 
-    /// Play a search result. We don't have a list context for it, so YT
-    /// will start an autoplay radio off this track — same as clicking a
-    /// random song in YT Music's own search.
-    func playSearchResult(_ r: SearchResult) {
-        let urlStr = "https://music.youtube.com/watch?v=\(r.id)"
-        if let url = URL(string: urlStr) {
-            WebViewHolder.shared.webView?.load(URLRequest(url: url))
+    /// Route a search result to the right action: songs play, playlists/
+    /// albums load in main content, artists navigate the WebView for now.
+    func openSearchResult(_ r: SearchResult) {
+        switch r.kind {
+        case .song:
+            let urlStr = "https://music.youtube.com/watch?v=\(r.id)"
+            if let url = URL(string: urlStr) {
+                WebViewHolder.shared.webView?.load(URLRequest(url: url))
+            }
+        case .playlist:
+            // Reuse the existing playlist detail flow — drop into a
+            // PlaylistSummary so MainContent shows its tracks.
+            let p = PlaylistSummary(id: r.id, title: r.title,
+                                    thumbnailURL: r.thumbnailURL)
+            openPlaylist(p)
+        case .album, .artist:
+            // Albums browse like playlists (we can load them via /browse),
+            // artists are richer. For v0 just navigate the WebView so the
+            // queue/play context updates; UI catches up next pass.
+            let urlStr = "https://music.youtube.com/browse/\(r.id)"
+            if let url = URL(string: urlStr) {
+                WebViewHolder.shared.webView?.load(URLRequest(url: url))
+            }
         }
         isSearchVisible = false
         searchQuery = ""
-        searchResults = []
+        searchSongs = []
+        searchPlaylists = []
+        searchAlbums = []
+        searchArtists = []
     }
 
     // MARK: - Track actions (context menu)
@@ -279,33 +324,14 @@ final class NativeShellViewModel: ObservableObject {
         }
     }
 
-    /// Add a track to the live YT queue without disrupting current playback.
-    /// We poke YT's internal queue helper via JS — fragile across YT updates,
-    /// but the only path that doesn't require a server round-trip.
+    /// "Add to queue" / "Play next" — placeholder for now. Doing this
+    /// properly needs an action token tied to YT's queue continuation
+    /// (the actual "..." menu carries it as queueAddEndpoint.params).
+    /// We can't synthesize that token from outside; the right fix is
+    /// owning the queue model ourselves and chaining videoIds as
+    /// /watch?v= navigations on track-end. That's the next big rock.
     func addToQueue(videoId: String, title: String, playNext: Bool = false) {
-        let position = playNext ? "INSERT_AFTER_CURRENT_VIDEO" : "INSERT_AT_END"
-        let js = """
-        (function() {
-          try {
-            var app = document.querySelector('ytmusic-app');
-            var pmgr = app && app.networkManager_
-              ? app.networkManager_.fetch.bind(app.networkManager_)
-              : null;
-            if (!pmgr) return false;
-            // Fire YT's own "Add to queue" action by sending the watch
-            // endpoint with the right queue insert position param.
-            var data = {
-              videoIds: ['\(videoId)'],
-              queueInsertPosition: '\(position)'
-            };
-            pmgr('/youtubei/v1/browse/edit_playlist', data);
-            return true;
-          } catch (e) { return false; }
-        })();
-        """
-        WebViewHolder.shared.webView?.evaluateJavaScript(js) { [weak self] _, _ in
-            self?.showToast(playNext ? "Playing next: \(title)" : "Added to queue: \(title)")
-        }
+        showToast("Add to queue — coming soon (own queue model)")
     }
 
     func addToPlaylist(videoId: String, playlistId: String, trackTitle: String, playlistTitle: String) {
@@ -466,5 +492,63 @@ enum TrackParser {
         else { return nil }
         let s = runs.compactMap { $0["text"] as? String }.joined()
         return s.isEmpty ? nil : s
+    }
+}
+
+/// Walks a search response and pulls out album / playlist / artist cards
+/// from `musicTwoRowItemRenderer` entries, categorising by browseId prefix.
+enum SearchCardParser {
+    static func parse(data: Data) -> [NativeShellViewModel.SearchResult] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return [] }
+        var out: [NativeShellViewModel.SearchResult] = []
+        var seen = Set<String>()
+        walk(json) { dict in
+            guard let renderer = dict["musicTwoRowItemRenderer"] as? [String: Any],
+                  let item = extract(renderer) else { return }
+            if seen.insert(item.id).inserted { out.append(item) }
+        }
+        return out
+    }
+
+    private static func walk(_ node: Any, visit: ([String: Any]) -> Void) {
+        if let dict = node as? [String: Any] {
+            visit(dict)
+            for value in dict.values { walk(value, visit: visit) }
+        } else if let arr = node as? [Any] {
+            for value in arr { walk(value, visit: visit) }
+        }
+    }
+
+    private static func extract(_ renderer: [String: Any]) -> NativeShellViewModel.SearchResult? {
+        let title = ((renderer["title"] as? [String: Any])?["runs"] as? [[String: Any]])?
+            .first?["text"] as? String ?? ""
+        // Subtitle runs can be ["Album", " • ", "Artist"]; we keep the
+        // human-readable joined form for display.
+        let subtitleRuns = ((renderer["subtitle"] as? [String: Any])?["runs"] as? [[String: Any]]) ?? []
+        let subtitle = subtitleRuns.compactMap { $0["text"] as? String }.joined()
+        let browseId = ((renderer["navigationEndpoint"] as? [String: Any])?["browseEndpoint"]
+            as? [String: Any])?["browseId"] as? String
+        let thumbs = ((renderer["thumbnailRenderer"] as? [String: Any])?["musicThumbnailRenderer"]
+            as? [String: Any]).flatMap {
+                ($0["thumbnail"] as? [String: Any])?["thumbnails"] as? [[String: Any]]
+            }
+        let thumbURL = thumbs?.last?["url"] as? String
+
+        guard let id = browseId, !title.isEmpty else { return nil }
+        // Categorise by browseId prefix. UC = artist, VLPL = playlist,
+        // MPREb / OLAK = album. Mixes (VLRDA…) are surfaced as playlists.
+        let kind: NativeShellViewModel.SearchKind
+        if id.hasPrefix("UC") {
+            kind = .artist
+        } else if id.hasPrefix("VLPL") || id.hasPrefix("VLRDA") {
+            kind = .playlist
+        } else if id.hasPrefix("MPRE") || id.hasPrefix("OLAK") {
+            kind = .album
+        } else {
+            return nil
+        }
+        return NativeShellViewModel.SearchResult(
+            id: id, kind: kind, title: title, subtitle: subtitle, thumbnailURL: thumbURL
+        )
     }
 }
