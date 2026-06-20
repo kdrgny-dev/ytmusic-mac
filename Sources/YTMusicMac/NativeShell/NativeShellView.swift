@@ -23,7 +23,7 @@ struct NativeShellView: View {
             HStack(spacing: 0) {
                 Sidebar(bg: bgSurface, stroke: strokeColor, vm: vm)
                 Divider().background(strokeColor)
-                MainContent(bg: bgBase)
+                MainContent(bg: bgBase, vm: vm)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -179,23 +179,171 @@ private struct Sidebar: View {
 
 private struct MainContent: View {
     let bg: Color
+    @ObservedObject var vm: NativeShellViewModel
 
     var body: some View {
         ZStack {
             bg.ignoresSafeArea()
-            VStack(spacing: 8) {
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 36, weight: .light))
-                    .foregroundColor(.white.opacity(0.35))
-                Text("Native shell ready")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.85))
-                Text("Sidebar, queue and search come next. Playback already works.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.45))
+            if let p = vm.selectedPlaylist {
+                PlaylistDetailView(playlist: p, vm: vm)
+            } else {
+                emptyState
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "music.note.list")
+                .font(.system(size: 36, weight: .light))
+                .foregroundColor(.white.opacity(0.35))
+            Text("Pick a playlist")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundColor(.white.opacity(0.85))
+            Text("Choose one from the sidebar to see its tracks.")
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.45))
+        }
+    }
+}
+
+private struct PlaylistDetailView: View {
+    let playlist: NativeShellViewModel.PlaylistSummary
+    @ObservedObject var vm: NativeShellViewModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider().background(Color.white.opacity(0.08))
+            tracksList
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 16) {
+            cover
+                .frame(width: 96, height: 96)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("PLAYLIST")
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundColor(.white.opacity(0.5))
+                Text(playlist.title)
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundColor(.white)
+                    .lineLimit(2)
+                if !vm.tracks.isEmpty {
+                    Text("\(vm.tracks.count) tracks")
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.6))
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 20)
+    }
+
+    @ViewBuilder
+    private var cover: some View {
+        if let s = playlist.thumbnailURL, let url = URL(string: s) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let img):
+                    img.resizable().aspectRatio(contentMode: .fill)
+                default:
+                    Color.white.opacity(0.06)
+                }
+            }
+        } else {
+            Color.white.opacity(0.06)
+        }
+    }
+
+    @ViewBuilder
+    private var tracksList: some View {
+        if vm.loadingTracks && vm.tracks.isEmpty {
+            VStack {
+                ProgressView()
+                Text("Loading tracks…")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.5))
+                    .padding(.top, 8)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let msg = vm.tracksError, vm.tracks.isEmpty {
+            Text(msg)
+                .font(.system(size: 12))
+                .foregroundColor(.white.opacity(0.6))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(vm.tracks.enumerated()), id: \.element.id) { idx, track in
+                        Button(action: { vm.playTrack(track) }) {
+                            TrackRow(index: idx + 1, track: track)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
+        }
+    }
+}
+
+private struct TrackRow: View {
+    let index: Int
+    let track: NativeShellViewModel.TrackSummary
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text("\(index)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.white.opacity(0.4))
+                .frame(width: 28, alignment: .trailing)
+            cover
+                .frame(width: 36, height: 36)
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                Text(track.artist)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.55))
+                    .lineLimit(1)
+            }
+            Spacer()
+            if let dur = track.duration {
+                Text(dur)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.5))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .background(Color.white.opacity(0.0001)) // hover targets
+    }
+
+    @ViewBuilder
+    private var cover: some View {
+        if let s = track.thumbnailURL, let url = URL(string: s) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let img):
+                    img.resizable().aspectRatio(contentMode: .fill)
+                default:
+                    Color.white.opacity(0.06)
+                }
+            }
+        } else {
+            Color.white.opacity(0.06)
+        }
     }
 }
 
