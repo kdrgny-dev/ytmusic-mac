@@ -549,99 +549,102 @@ private struct ShelfRow: View {
     @ObservedObject var vm: NativeShellViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                if let s = shelf.subtitle, !s.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(s.uppercased())
-                            .font(.system(size: 10, weight: .semibold))
-                            .tracking(0.5)
-                            .foregroundColor(.white.opacity(0.5))
-                        Text(shelf.title)
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(.white)
-                    }
-                } else {
-                    Text(shelf.title)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.white)
-                }
-                Spacer()
+        CarouselSection(
+            title: shelf.title,
+            subtitle: shelf.subtitle,
+            items: shelf.items,
+            pageSize: 3
+        ) { card in
+            Button(action: { vm.openHomeCard(card) }) {
+                HomeCardView(card: card)
             }
-            HoverCarousel(items: shelf.items, pageSize: 3) { card in
-                Button(action: { vm.openHomeCard(card) }) {
-                    HomeCardView(card: card)
-                }
-                .buttonStyle(.plain)
-            }
+            .buttonStyle(.plain)
         }
     }
 }
 
-/// Horizontally-scrolling row with chevron buttons that appear on hover.
-/// One reusable carousel powers both the Home shelves and the genre
-/// sections, so the user gets the same scroll affordances everywhere
-/// without each call site duplicating ScrollViewReader plumbing.
-private struct HoverCarousel<Item: Identifiable, Content: View>: View where Item.ID: Hashable {
+/// One reusable carousel row used by every horizontal section on Home.
+/// Header (title + optional strapline) on the left, paired chevron pills
+/// on the right of the same row. Chevrons stay visible (no hover) and
+/// fade their fill when there's no further scroll in that direction.
+private struct CarouselSection<Item: Identifiable, Content: View>: View where Item.ID: Hashable {
+    let title: String
+    let subtitle: String?
     let items: [Item]
     /// How many items to step per chevron click.
     let pageSize: Int
     @ViewBuilder let content: (Item) -> Content
 
-    @State private var hovered = false
-    /// Index of the leading visible item. Tracked so we can hide the
-    /// left/right chevron once we're at an edge.
+    /// Index of the leading visible item — drives the chevron's enabled
+    /// state. Updated by the chevrons; trackpad scroll doesn't (and
+    /// doesn't need to — we just want sane enable/disable).
     @State private var currentIndex: Int = 0
+
+    private var canLeft: Bool  { currentIndex > 0 }
+    private var canRight: Bool { currentIndex < max(0, items.count - 1) }
 
     var body: some View {
         ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(items) { item in
-                        content(item).id(item.id)
+            VStack(alignment: .leading, spacing: 10) {
+                header(proxy: proxy)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(items) { item in
+                            content(item).id(item.id)
+                        }
                     }
-                }
-                .padding(.bottom, 4)
-            }
-            .overlay(alignment: .leading) {
-                if hovered && currentIndex > 0 {
-                    navButton(.leftward, proxy: proxy)
-                        .padding(.leading, 2)
-                        .transition(.opacity)
+                    .padding(.bottom, 4)
                 }
             }
-            .overlay(alignment: .trailing) {
-                if hovered && currentIndex < max(0, items.count - 1) {
-                    navButton(.rightward, proxy: proxy)
-                        .padding(.trailing, 2)
-                        .transition(.opacity)
-                }
-            }
-            .animation(.easeOut(duration: 0.14), value: hovered)
         }
-        .onHover { hovered = $0 }
+    }
+
+    private func header(proxy: ScrollViewProxy) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                if let s = subtitle, !s.isEmpty {
+                    Text(s.uppercased())
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(0.5)
+                        .foregroundColor(.white.opacity(0.5))
+                }
+                Text(title)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            Spacer()
+            navChevron(.leftward, proxy: proxy)
+            navChevron(.rightward, proxy: proxy)
+        }
     }
 
     private enum Direction { case leftward, rightward }
 
-    private func navButton(_ dir: Direction, proxy: ScrollViewProxy) -> some View {
-        Button(action: { step(dir, proxy: proxy) }) {
+    private func navChevron(_ dir: Direction, proxy: ScrollViewProxy) -> some View {
+        let enabled = dir == .leftward ? canLeft : canRight
+        return Button(action: { step(dir, proxy: proxy) }) {
             Image(systemName: dir == .leftward ? "chevron.left" : "chevron.right")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundColor(.white)
-                .frame(width: 36, height: 36)
-                .background(Color.black.opacity(0.72))
-                .clipShape(Circle())
-                .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
-                .shadow(color: .black.opacity(0.5), radius: 8, y: 2)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(.white.opacity(enabled ? 0.9 : 0.3))
+                .frame(width: 28, height: 28)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(enabled ? 0.10 : 0.04))
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(enabled ? 0.18 : 0.08), lineWidth: 1)
+                )
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 
     private func step(_ dir: Direction, proxy: ScrollViewProxy) {
         guard !items.isEmpty else { return }
         let delta = (dir == .leftward ? -1 : 1) * pageSize
         let next = max(0, min(items.count - 1, currentIndex + delta))
+        guard next != currentIndex else { return }
         currentIndex = next
         withAnimation(.easeInOut(duration: 0.3)) {
             proxy.scrollTo(items[next].id, anchor: .leading)
@@ -658,16 +661,16 @@ private struct GenreCarousel: View {
     @ObservedObject var vm: NativeShellViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(section.title)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(.white)
-            HoverCarousel(items: section.chips, pageSize: 4) { g in
-                Button(action: { vm.openGenre(g) }) {
-                    GenreChipView(genre: g)
-                }
-                .buttonStyle(.plain)
+        CarouselSection(
+            title: section.title,
+            subtitle: nil,
+            items: section.chips,
+            pageSize: 4
+        ) { g in
+            Button(action: { vm.openGenre(g) }) {
+                GenreChipView(genre: g)
             }
+            .buttonStyle(.plain)
         }
     }
 }
