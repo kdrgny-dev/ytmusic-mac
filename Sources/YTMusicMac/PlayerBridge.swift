@@ -252,6 +252,26 @@ enum PlayerBridge {
     }
     """#
 
+    /// "Native Mode" — hides YT Music's entire visible UI by collapsing
+    /// the app-layout. The <video> element underneath keeps playing audio,
+    /// so the WebView is now just an invisible audio engine. Our SwiftUI
+    /// shell covers what the user actually sees.
+    static let hideYTAppCSS = #"""
+    ytmusic-app-layout,
+    ytmusic-nav-bar,
+    ytmusic-player-bar,
+    ytmusic-popup-container,
+    tp-yt-app-drawer {
+      display: none !important;
+    }
+    /* Belt-and-suspenders: even if a single element slips through, the
+       body background goes dark so there's no white frame around the
+       SwiftUI overlay. */
+    html, body, ytmusic-app {
+      background: #030303 !important;
+    }
+    """#
+
     /// Player-bar: song info on the left, transport controls centered,
     /// secondary controls on the right (Spotify-style).
     static let playerLayoutCSS = #"""
@@ -293,7 +313,8 @@ enum PlayerBridge {
             ("playerLayout", playerLayoutCSS, true),
             ("zebraStriping", zebraStripingCSS, true),
             ("compactMode", compactModeCSS, false),
-            ("stackedHeader", stackedHeaderCSS, false)
+            ("stackedHeader", stackedHeaderCSS, false),
+            ("hideYTApp", hideYTAppCSS, false)
         ]
         let entries = features.map { f -> String in
             // JS-escape the CSS string (backticks + backslashes + ${ })

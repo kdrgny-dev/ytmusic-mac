@@ -1,4 +1,6 @@
 import AppKit
+import Combine
+import SwiftUI
 import WebKit
 
 /// Single-instance controller for the app's main window. Manages an NSWindow
@@ -9,6 +11,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
     private var window: NSWindow?
     private let frameAutosaveName = "YTMusicMacMainWindow"
+    private var nativeOverlay: NSHostingView<AnyView>?
+    private var prefsCancellable: AnyCancellable?
 
     func show() {
         if window == nil { build() }
@@ -38,12 +42,52 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         let restored = w.setFrameAutosaveName(frameAutosaveName)
         if !restored { w.center() }
 
-        // Host the singleton WebView directly as the window's content view.
+        // Wrapper container holds the WebView AND (when Native Mode is on)
+        // the SwiftUI overlay. WKWebView is a remote-process view, so we
+        // can't safely add NSHostingView as ITS subview — siblings under a
+        // plain NSView container work fine.
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
+        container.autoresizingMask = [.width, .height]
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor(red: 0.012, green: 0.012, blue: 0.012, alpha: 1).cgColor
+
         let webView = WebViewHolder.shared.obtain()
         webView.removeFromSuperview()
-        w.contentView = webView
+        webView.frame = container.bounds
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
 
+        w.contentView = container
         window = w
+
+        // Subscribe AFTER window is set so applyNativeMode can actually
+        // find the container. .sink fires immediately with the current
+        // value, which seeds initial state.
+        prefsCancellable = Preferences.shared.$nativeUIMode
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] on in self?.applyNativeMode(on) }
+    }
+
+    /// Add or remove the SwiftUI shell as a sibling subview alongside the
+    /// WebView. Same container, same size, on top in z-order.
+    private func applyNativeMode(_ on: Bool) {
+        guard let container = window?.contentView else { return }
+        if on {
+            if nativeOverlay == nil {
+                let root = AnyView(
+                    NativeShellView()
+                        .environmentObject(MediaController.shared)
+                )
+                let host = NSHostingView(rootView: root)
+                host.frame = container.bounds
+                host.autoresizingMask = [.width, .height]
+                container.addSubview(host, positioned: .above, relativeTo: nil)
+                nativeOverlay = host
+            }
+        } else {
+            nativeOverlay?.removeFromSuperview()
+            nativeOverlay = nil
+        }
     }
 
     // MARK: - NSWindowDelegate

@@ -25,6 +25,13 @@ struct SettingsView: View {
                 Toggle("Auto-reload after 30 min paused (frees memory; you stay signed in)",
                        isOn: $prefs.autoReloadOnIdle)
             }
+            Section("Experimental") {
+                Toggle("Native UI mode (beta — replaces YT's web UI with a SwiftUI shell)",
+                       isOn: $prefs.nativeUIMode)
+                Text("v0 ships with a working player bar + placeholder sidebar/main. Library, search, queue panel come next.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
         .formStyle(.grouped)
     }

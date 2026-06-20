@@ -69,6 +69,16 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(autoReloadOnIdle, forKey: Keys.autoReloadOnIdle) }
     }
 
+    /// When true, the WebView's UI is hidden via CSS and a SwiftUI shell
+    /// covers the window. WebView still runs in the background as the audio
+    /// engine. Default OFF until the shell is feature-complete.
+    @Published var nativeUIMode: Bool {
+        didSet {
+            defaults.set(nativeUIMode, forKey: Keys.nativeUIMode)
+            FeatureBridge.shared.set("hideYTApp", enabled: nativeUIMode)
+        }
+    }
+
     private init() {
         self.notifyOnTrackChange = defaults.bool(forKey: Keys.notify)
         self.miniPlayerAlwaysOnTop = defaults.object(forKey: Keys.miniOnTop) as? Bool ?? true
@@ -79,6 +89,7 @@ final class Preferences: ObservableObject {
         self.stackedHeader = defaults.bool(forKey: Keys.stackedHeader)
         self.alwaysShuffle = defaults.object(forKey: Keys.alwaysShuffle) as? Bool ?? true
         self.autoReloadOnIdle = defaults.object(forKey: Keys.autoReloadOnIdle) as? Bool ?? true
+        self.nativeUIMode = defaults.bool(forKey: Keys.nativeUIMode)
         let raw = defaults.string(forKey: Keys.theme) ?? Theme.default.rawValue
         self.theme = Theme(rawValue: raw) ?? .default
     }
@@ -94,6 +105,7 @@ final class Preferences: ObservableObject {
         static let theme = "pref.theme"
         static let alwaysShuffle = "pref.alwaysShuffle"
         static let autoReloadOnIdle = "pref.autoReloadOnIdle"
+        static let nativeUIMode = "pref.nativeUIMode"
     }
 }
 
