@@ -466,15 +466,67 @@ private struct PlaylistDetailView: View {
                     .foregroundColor(.white)
                     .lineLimit(2)
                 if !vm.tracks.isEmpty {
-                    Text("\(vm.tracks.count) tracks")
+                    Text(metaLine)
                         .font(.system(size: 12))
                         .foregroundColor(.white.opacity(0.6))
                 }
             }
             Spacer()
+            saveButton
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 20)
+    }
+
+    /// "98 tracks · 5h 32min" — duration is summed from track row strings.
+    private var metaLine: String {
+        let trackPart = "\(vm.tracks.count) tracks"
+        guard let dur = formattedTotalDuration else { return trackPart }
+        return "\(trackPart) · \(dur)"
+    }
+
+    private var formattedTotalDuration: String? {
+        let total = vm.tracks.reduce(0) { acc, t in
+            acc + (parseDurationSeconds(t.duration) ?? 0)
+        }
+        guard total > 0 else { return nil }
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        return h > 0 ? "\(h)h \(m)min" : "\(m)min"
+    }
+
+    private func parseDurationSeconds(_ s: String?) -> Int? {
+        guard let s = s else { return nil }
+        let parts = s.split(separator: ":").compactMap { Int($0) }
+        switch parts.count {
+        case 2: return parts[0] * 60 + parts[1]
+        case 3: return parts[0] * 3600 + parts[1] * 60 + parts[2]
+        default: return nil
+        }
+    }
+
+    private var saveButton: some View {
+        Button(action: { vm.savePlaylistToLibrary(playlist) }) {
+            HStack(spacing: 6) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 13))
+                Text("Save")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundColor(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.12))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Save this playlist to your library")
     }
 
     @ViewBuilder

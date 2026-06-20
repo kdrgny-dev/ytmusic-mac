@@ -80,6 +80,25 @@ actor InnerTubeClient {
         ])
     }
 
+    /// "Save to library" for an entire playlist — same /like/like endpoint
+    /// but with a playlistId target instead of videoId. Adds the playlist
+    /// to the user's library so it shows up in the sidebar next refresh.
+    @discardableResult
+    func savePlaylist(playlistId: String) async throws -> Data {
+        try await post("like/like", body: [
+            "context": ["client": clientDict()],
+            "target": ["playlistId": playlistId]
+        ])
+    }
+
+    @discardableResult
+    func removePlaylist(playlistId: String) async throws -> Data {
+        try await post("like/removelike", body: [
+            "context": ["client": clientDict()],
+            "target": ["playlistId": playlistId]
+        ])
+    }
+
     /// Add a track to one of the user's playlists. playlistId is the bare
     /// "PL..." form (no "VL" prefix). dedupeOption is required by current
     /// YT — leaving it out triggers INVALID_ARGUMENT even on valid PLs.

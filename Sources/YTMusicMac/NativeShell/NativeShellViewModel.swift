@@ -414,6 +414,25 @@ final class NativeShellViewModel: ObservableObject {
             NSWorkspace.shared.open(url)
         }
     }
+
+    /// Save a playlist to the user's library. Routes through the like
+    /// endpoint with a playlistId target — same primitive YT's own
+    /// "Save to library" button uses. Reloads sidebar on success so the
+    /// new entry shows up without an explicit refresh tap.
+    func savePlaylistToLibrary(_ p: PlaylistSummary) {
+        Task {
+            do {
+                let bareId = p.id.hasPrefix("VL") ? String(p.id.dropFirst(2)) : p.id
+                _ = try await client.savePlaylist(playlistId: bareId)
+                showToast("Saved “\(p.title)” to library")
+                await loadPlaylists()
+            } catch InnerTubeClient.APIError.httpStatus(let code, _) {
+                showToast("Save failed (HTTP \(code))")
+            } catch {
+                showToast("Save failed")
+            }
+        }
+    }
 }
 
 /// Tiny JSON walker that finds the renderers we care about anywhere in the
