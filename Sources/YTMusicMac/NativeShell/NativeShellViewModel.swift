@@ -322,10 +322,8 @@ final class NativeShellViewModel: ObservableObject {
         }
         isSearchVisible = false
         searchQuery = ""
-        searchSongs = []
-        searchPlaylists = []
-        searchAlbums = []
-        searchArtists = []
+        searchResults = []
+        searchCache.removeAll()
     }
 
     // MARK: - Track actions (context menu)
