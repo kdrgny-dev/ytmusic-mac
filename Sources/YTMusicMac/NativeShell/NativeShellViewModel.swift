@@ -178,8 +178,10 @@ final class NativeShellViewModel: ObservableObject {
             do {
                 _ = try await client.like(videoId: videoId)
                 showToast("Liked: \(title)")
+            } catch InnerTubeClient.APIError.httpStatus(let code, _) {
+                showToast("Like failed (HTTP \(code))")
             } catch {
-                showToast("Like failed: \(error)")
+                showToast("Like failed")
             }
         }
     }
@@ -189,8 +191,10 @@ final class NativeShellViewModel: ObservableObject {
             do {
                 _ = try await client.dislike(videoId: videoId)
                 showToast("Disliked: \(title)")
+            } catch InnerTubeClient.APIError.httpStatus(let code, _) {
+                showToast("Dislike failed (HTTP \(code))")
             } catch {
-                showToast("Dislike failed: \(error)")
+                showToast("Dislike failed")
             }
         }
     }
@@ -228,10 +232,16 @@ final class NativeShellViewModel: ObservableObject {
         Task {
             do {
                 let bareId = playlistId.hasPrefix("VL") ? String(playlistId.dropFirst(2)) : playlistId
+                guard bareId.hasPrefix("PL") else {
+                    showToast("\(playlistTitle) isn't editable")
+                    return
+                }
                 _ = try await client.addToPlaylist(playlistId: bareId, videoId: videoId)
                 showToast("Added “\(trackTitle)” to \(playlistTitle)")
+            } catch InnerTubeClient.APIError.httpStatus(let code, _) {
+                showToast("Save failed (HTTP \(code))")
             } catch {
-                showToast("Save failed: \(error)")
+                showToast("Save failed")
             }
         }
     }

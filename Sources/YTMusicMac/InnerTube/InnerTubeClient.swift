@@ -81,8 +81,8 @@ actor InnerTubeClient {
     }
 
     /// Add a track to one of the user's playlists. playlistId is the bare
-    /// "PL..." form (no "VL" prefix). YT also wants the "setVideoId" field
-    /// for some playlists; we add it as optional.
+    /// "PL..." form (no "VL" prefix). dedupeOption is required by current
+    /// YT — leaving it out triggers INVALID_ARGUMENT even on valid PLs.
     @discardableResult
     func addToPlaylist(playlistId: String, videoId: String) async throws -> Data {
         try await post("browse/edit_playlist", body: [
@@ -90,7 +90,8 @@ actor InnerTubeClient {
             "playlistId": playlistId,
             "actions": [[
                 "action": "ACTION_ADD_VIDEO",
-                "addedVideoId": videoId
+                "addedVideoId": videoId,
+                "dedupeOption": "DEDUPE_OPTION_SKIP"
             ]]
         ])
     }
