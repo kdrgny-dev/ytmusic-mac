@@ -239,6 +239,7 @@ private struct MainContent: View {
 private struct PlaylistDetailView: View {
     let playlist: NativeShellViewModel.PlaylistSummary
     @ObservedObject var vm: NativeShellViewModel
+    @EnvironmentObject private var media: MediaController
 
     var body: some View {
         VStack(spacing: 0) {
@@ -311,7 +312,10 @@ private struct PlaylistDetailView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(vm.tracks.enumerated()), id: \.element.id) { idx, track in
                         Button(action: { vm.playTrack(track) }) {
-                            TrackRow(index: idx + 1, track: track)
+                            TrackRow(index: idx + 1,
+                                     track: track,
+                                     isPlaying: isCurrentTrack(track),
+                                     zebra: idx.isMultiple(of: 2))
                         }
                         .buttonStyle(.plain)
                         .contextMenu { trackContextMenu(for: track) }
@@ -320,6 +324,13 @@ private struct PlaylistDetailView: View {
                 .padding(.horizontal, 12)
             }
         }
+    }
+
+    /// Match the row to nowPlaying by title. Accessed via the env object
+    /// so SwiftUI re-renders this view tree when the current track changes.
+    private func isCurrentTrack(_ t: NativeShellViewModel.TrackSummary) -> Bool {
+        let np = media.nowPlaying
+        return np.hasTrack && np.title.caseInsensitiveCompare(t.title) == .orderedSame
     }
 
     @ViewBuilder
@@ -357,20 +368,46 @@ private struct PlaylistDetailView: View {
 private struct TrackRow: View {
     let index: Int
     let track: NativeShellViewModel.TrackSummary
+    let isPlaying: Bool
+    let zebra: Bool
+
+    @State private var isHovered: Bool = false
+
+    /// Background tint: hover wins, then isPlaying highlight, then zebra.
+    private var rowBackground: Color {
+        if isHovered { return Color.white.opacity(0.08) }
+        if isPlaying { return Color.accentColor.opacity(0.18) }
+        return zebra ? Color.white.opacity(0.03) : .clear
+    }
+
+    private var titleColor: Color {
+        isPlaying ? Color.accentColor : .white
+    }
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("\(index)")
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundColor(.white.opacity(0.4))
-                .frame(width: 28, alignment: .trailing)
+            // Index column — replaced by a speaker icon for the playing row
+            // so it's obvious at a glance, like Spotify.
+            ZStack {
+                if isPlaying {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color.accentColor)
+                } else {
+                    Text("\(index)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.4))
+                }
+            }
+            .frame(width: 28, alignment: .trailing)
+
             cover
                 .frame(width: 36, height: 36)
                 .clipShape(RoundedRectangle(cornerRadius: 3))
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.title)
-                    .font(.system(size: 13))
-                    .foregroundColor(.white)
+                    .font(.system(size: 13, weight: isPlaying ? .semibold : .regular))
+                    .foregroundColor(titleColor)
                     .lineLimit(1)
                 Text(track.artist)
                     .font(.system(size: 11))
@@ -386,8 +423,10 @@ private struct TrackRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .background(rowBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
         .contentShape(Rectangle())
-        .background(Color.white.opacity(0.0001)) // hover targets
+        .onHover { isHovered = $0 }
     }
 
     @ViewBuilder
