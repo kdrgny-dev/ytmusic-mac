@@ -52,6 +52,24 @@ final class NativeShellViewModel: ObservableObject {
     @Published private(set) var queuePlayingIndex: Int = -1
     @Published var isQueueVisible: Bool = false
 
+    struct SearchResult: Identifiable, Hashable {
+        let id: String           // videoId
+        let title: String
+        let artist: String
+        let album: String?
+        let thumbnailURL: String?
+    }
+
+    @Published var isSearchVisible: Bool = false
+    @Published var searchQuery: String = "" {
+        didSet { scheduleSearch() }
+    }
+    @Published private(set) var searchResults: [SearchResult] = []
+    @Published private(set) var searchLoading: Bool = false
+    @Published private(set) var searchError: String?
+
+    private var searchTask: Task<Void, Never>?
+
     private let auth = AuthSession()
     private let client: InnerTubeClient
 
@@ -156,6 +174,68 @@ final class NativeShellViewModel: ObservableObject {
     }
 
     func toggleQueue() { isQueueVisible.toggle() }
+
+    func toggleSearch() {
+        isSearchVisible.toggle()
+        if !isSearchVisible {
+            searchQuery = ""
+            searchResults = []
+            searchError = nil
+        }
+    }
+
+    /// Debounce typing so we don't fire a /search call per keystroke.
+    private func scheduleSearch() {
+        searchTask?.cancel()
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            searchResults = []
+            searchError = nil
+            searchLoading = false
+            return
+        }
+        searchTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            await runSearch(query: query)
+        }
+    }
+
+    private func runSearch(query: String) async {
+        searchLoading = true
+        defer { searchLoading = false }
+        do {
+            let data = try await client.search(query: query)
+            // Filter the response to a flat song list — same DOM/JSON
+            // shape we parsed for playlist tracks.
+            let songs = TrackParser.parse(data: data).map {
+                SearchResult(id: $0.id,
+                             title: $0.title,
+                             artist: $0.artist,
+                             album: nil,
+                             thumbnailURL: $0.thumbnailURL)
+            }
+            guard !Task.isCancelled else { return }
+            searchResults = songs
+            searchError = songs.isEmpty ? "No results." : nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            searchError = "Search failed"
+        }
+    }
+
+    /// Play a search result. We don't have a list context for it, so YT
+    /// will start an autoplay radio off this track — same as clicking a
+    /// random song in YT Music's own search.
+    func playSearchResult(_ r: SearchResult) {
+        let urlStr = "https://music.youtube.com/watch?v=\(r.id)"
+        if let url = URL(string: urlStr) {
+            WebViewHolder.shared.webView?.load(URLRequest(url: url))
+        }
+        isSearchVisible = false
+        searchQuery = ""
+        searchResults = []
+    }
 
     // MARK: - Track actions (context menu)
 

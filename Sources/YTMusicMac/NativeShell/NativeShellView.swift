@@ -39,6 +39,12 @@ struct NativeShellView: View {
                     .frame(height: 96)
             }
 
+            if vm.isSearchVisible {
+                SearchOverlay(vm: vm)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .zIndex(20)
+            }
+
             if let msg = vm.toast {
                 Text(msg)
                     .font(.system(size: 12, weight: .medium))
@@ -61,8 +67,161 @@ struct NativeShellView: View {
         .background(bgBase)
         .preferredColorScheme(.dark)
         .animation(.easeInOut(duration: 0.18), value: vm.isQueueVisible)
+        .animation(.easeInOut(duration: 0.18), value: vm.isSearchVisible)
         .animation(.easeInOut(duration: 0.2), value: vm.toast)
         .onAppear { vm.loadPlaylistsIfNeeded() }
+    }
+}
+
+// MARK: - Search overlay
+
+private struct SearchOverlay: View {
+    @ObservedObject var vm: NativeShellViewModel
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        ZStack {
+            // Dim backdrop — tap outside the card to dismiss.
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .onTapGesture { vm.toggleSearch() }
+
+            VStack(spacing: 0) {
+                searchField
+                Divider().background(Color.white.opacity(0.08))
+                resultsArea
+            }
+            .frame(maxWidth: 640)
+            .frame(maxHeight: 520)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(red: 0.08, green: 0.08, blue: 0.10))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 12)
+        }
+        .onAppear { focused = true }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14))
+                .foregroundColor(.white.opacity(0.5))
+            TextField("Search songs, artists, albums…", text: $vm.searchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 16))
+                .foregroundColor(.white)
+                .focused($focused)
+                .onSubmit {
+                    if let first = vm.searchResults.first { vm.playSearchResult(first) }
+                }
+            if vm.searchLoading {
+                ProgressView().controlSize(.small)
+            } else if !vm.searchQuery.isEmpty {
+                Button(action: { vm.searchQuery = "" }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.white.opacity(0.4))
+                }
+                .buttonStyle(.plain)
+            }
+            Button(action: { vm.toggleSearch() }) {
+                Text("⎋")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.5))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+
+    @ViewBuilder
+    private var resultsArea: some View {
+        if vm.searchQuery.isEmpty {
+            VStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 28, weight: .light))
+                    .foregroundColor(.white.opacity(0.25))
+                Text("Type to search")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.4))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let msg = vm.searchError, vm.searchResults.isEmpty, !vm.searchLoading {
+            VStack(spacing: 4) {
+                Text(msg)
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.5))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(vm.searchResults) { r in
+                        Button(action: { vm.playSearchResult(r) }) {
+                            SearchResultRow(result: r)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 6)
+            }
+        }
+    }
+}
+
+private struct SearchResultRow: View {
+    let result: NativeShellViewModel.SearchResult
+    @State private var hovered: Bool = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            cover
+                .frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(result.title)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                Text(result.artist)
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.55))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(hovered ? Color.white.opacity(0.06) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+    }
+
+    @ViewBuilder
+    private var cover: some View {
+        if let s = result.thumbnailURL, let url = URL(string: s) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let img): img.resizable().aspectRatio(contentMode: .fill)
+                default: Color.white.opacity(0.06)
+                }
+            }
+        } else {
+            Color.white.opacity(0.06)
+        }
     }
 }
 

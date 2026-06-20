@@ -147,7 +147,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// Selector targets for menu items that don't belong on StatusActions.
 final class AppActions: NSObject {
     static let shared = AppActions()
-    @objc func focusSearch() { WebViewHolder.shared.focusSearch() }
+    @objc func focusSearch() {
+        // In Native Mode the WebView is hidden, so focusing YT's own search
+        // box accomplishes nothing the user can see. Route to the SwiftUI
+        // overlay instead. Outside Native Mode keep the legacy behaviour.
+        if Preferences.shared.nativeUIMode {
+            Task { @MainActor in NativeShellViewModel.shared.toggleSearch() }
+        } else {
+            WebViewHolder.shared.focusSearch()
+        }
+    }
     @objc func reload() { WebViewHolder.shared.reload() }
     @objc func clearData() { WebViewHolder.shared.clearAllData() }
     @objc func openSettings() { SettingsWindowController.shared.show() }
