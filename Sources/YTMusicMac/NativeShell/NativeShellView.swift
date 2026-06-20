@@ -568,17 +568,83 @@ private struct ShelfRow: View {
                 }
                 Spacer()
             }
+            HoverCarousel(items: shelf.items, pageSize: 3) { card in
+                Button(action: { vm.openHomeCard(card) }) {
+                    HomeCardView(card: card)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+/// Horizontally-scrolling row with chevron buttons that appear on hover.
+/// One reusable carousel powers both the Home shelves and the genre
+/// sections, so the user gets the same scroll affordances everywhere
+/// without each call site duplicating ScrollViewReader plumbing.
+private struct HoverCarousel<Item: Identifiable, Content: View>: View where Item.ID: Hashable {
+    let items: [Item]
+    /// How many items to step per chevron click.
+    let pageSize: Int
+    @ViewBuilder let content: (Item) -> Content
+
+    @State private var hovered = false
+    /// Index of the leading visible item. Tracked so we can hide the
+    /// left/right chevron once we're at an edge.
+    @State private var currentIndex: Int = 0
+
+    var body: some View {
+        ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 14) {
-                    ForEach(shelf.items) { card in
-                        Button(action: { vm.openHomeCard(card) }) {
-                            HomeCardView(card: card)
-                        }
-                        .buttonStyle(.plain)
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(items) { item in
+                        content(item).id(item.id)
                     }
                 }
                 .padding(.bottom, 4)
             }
+            .overlay(alignment: .leading) {
+                if hovered && currentIndex > 0 {
+                    navButton(.leftward, proxy: proxy)
+                        .padding(.leading, 2)
+                        .transition(.opacity)
+                }
+            }
+            .overlay(alignment: .trailing) {
+                if hovered && currentIndex < max(0, items.count - 1) {
+                    navButton(.rightward, proxy: proxy)
+                        .padding(.trailing, 2)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.14), value: hovered)
+        }
+        .onHover { hovered = $0 }
+    }
+
+    private enum Direction { case leftward, rightward }
+
+    private func navButton(_ dir: Direction, proxy: ScrollViewProxy) -> some View {
+        Button(action: { step(dir, proxy: proxy) }) {
+            Image(systemName: dir == .leftward ? "chevron.left" : "chevron.right")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 36, height: 36)
+                .background(Color.black.opacity(0.72))
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.12), lineWidth: 1))
+                .shadow(color: .black.opacity(0.5), radius: 8, y: 2)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func step(_ dir: Direction, proxy: ScrollViewProxy) {
+        guard !items.isEmpty else { return }
+        let delta = (dir == .leftward ? -1 : 1) * pageSize
+        let next = max(0, min(items.count - 1, currentIndex + delta))
+        currentIndex = next
+        withAnimation(.easeInOut(duration: 0.3)) {
+            proxy.scrollTo(items[next].id, anchor: .leading)
         }
     }
 }
@@ -596,16 +662,11 @@ private struct GenreCarousel: View {
             Text(section.title)
                 .font(.system(size: 18, weight: .bold))
                 .foregroundColor(.white)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(section.chips) { g in
-                        Button(action: { vm.openGenre(g) }) {
-                            GenreChipView(genre: g)
-                        }
-                        .buttonStyle(.plain)
-                    }
+            HoverCarousel(items: section.chips, pageSize: 4) { g in
+                Button(action: { vm.openGenre(g) }) {
+                    GenreChipView(genre: g)
                 }
-                .padding(.bottom, 4)
+                .buttonStyle(.plain)
             }
         }
     }
