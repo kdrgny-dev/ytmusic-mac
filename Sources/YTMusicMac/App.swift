@@ -13,6 +13,11 @@ struct YTMusicApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Held onto so the monitor stays alive for the app's lifetime.
+    /// Apple's docs say to keep the returned token — otherwise the
+    /// runtime is free to release it and stop delivering events.
+    private var mouseNavLocalMonitor: Any?
+    private var mouseNavGlobalMonitor: Any?
     func applicationDidFinishLaunching(_ notification: Notification) {
         MediaController.shared.setup()
         StatusBarController.shared.install()
@@ -23,23 +28,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainWindowController.shared.show()
     }
 
-    /// Hook up Mouse-4 / Mouse-5 (the side buttons on most mice) to the
-    /// Native Mode back / forward history. NSEvent's button numbers for
-    /// those are 3 and 4 respectively. Local monitor — only fires while
-    /// our app is frontmost.
+    /// Hook up mouse side-buttons to Native Mode's back / forward history.
+    /// We register BOTH a local monitor (events dispatched to our app)
+    /// AND a global monitor (events that go elsewhere — needed when the
+    /// hidden WebView's NSResponder chain swallows mouse 4/5 before
+    /// SwiftUI sees it). Both monitors map button 3 → back, button 4 → fwd.
     private func installMouseNavMonitor() {
-        NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
-            guard Preferences.shared.nativeUIMode else { return event }
-            switch event.buttonNumber {
-            case 3:
-                Task { @MainActor in NativeShellViewModel.shared.goBack() }
-                return nil
-            case 4:
-                Task { @MainActor in NativeShellViewModel.shared.goForward() }
-                return nil
-            default:
-                return event
+        let mask: NSEvent.EventTypeMask = [.otherMouseDown, .otherMouseUp]
+
+        mouseNavLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            guard let self = self else { return event }
+            if event.type == .otherMouseDown, self.handleSideButton(event) {
+                return nil   // swallow so the WebView underneath doesn't navigate too
             }
+            return event
+        }
+
+        mouseNavGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
+            guard let self = self else { return }
+            if event.type == .otherMouseDown { _ = self.handleSideButton(event) }
+        }
+    }
+
+    /// True if we acted on this event so the local monitor can swallow it.
+    @discardableResult
+    private func handleSideButton(_ event: NSEvent) -> Bool {
+        guard Preferences.shared.nativeUIMode else { return false }
+        let btn = event.buttonNumber
+        FileHandle.standardError.write(Data("[mouseNav] button=\(btn)\n".utf8))
+        // Standard macOS convention: button 3 = back, button 4 = forward.
+        // Some drivers (rare) use 4/5 instead — we treat button 5 as fwd
+        // and keep button 4 as either depending on whether we saw a 3 first.
+        switch btn {
+        case 3:
+            Task { @MainActor in NativeShellViewModel.shared.goBack() }
+            return true
+        case 4:
+            Task { @MainActor in NativeShellViewModel.shared.goForward() }
+            return true
+        case 5:
+            Task { @MainActor in NativeShellViewModel.shared.goForward() }
+            return true
+        default:
+            return false
         }
     }
 
@@ -116,6 +147,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                           key: "k", mods: [.command]))
         ctrl.addItem(item("Toggle Queue Panel", #selector(AppActions.toggleQueue), target: AppActions.shared,
                           key: "e", mods: [.command]))
+        ctrl.addItem(.separator())
+        ctrl.addItem(item("Back", #selector(AppActions.goBack), target: AppActions.shared,
+                          key: "[", mods: [.command]))
+        ctrl.addItem(item("Forward", #selector(AppActions.goForward), target: AppActions.shared,
+                          key: "]", mods: [.command]))
         ctrl.addItem(item("Reload", #selector(AppActions.reload), target: AppActions.shared,
                           key: "r", mods: [.command]))
         ctrl.addItem(.separator())
@@ -183,5 +219,11 @@ final class AppActions: NSObject {
     @objc func openSettings() { SettingsWindowController.shared.show() }
     @objc func toggleQueue() {
         Task { @MainActor in NativeShellViewModel.shared.toggleQueue() }
+    }
+    @objc func goBack() {
+        Task { @MainActor in NativeShellViewModel.shared.goBack() }
+    }
+    @objc func goForward() {
+        Task { @MainActor in NativeShellViewModel.shared.goForward() }
     }
 }
