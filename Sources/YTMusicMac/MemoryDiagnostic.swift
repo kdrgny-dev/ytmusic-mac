@@ -56,16 +56,39 @@ enum MemoryDiagnostic {
         return total
     }
 
+    /// Cached WebContent RSS — refreshed by a background task, NEVER on
+    /// the main thread (otherwise menuWillOpen would block while `ps`
+    /// scans the whole process table).
+    private static var cachedWebContent: UInt64 = 0
+    private static var refreshInFlight = false
+
     /// "App 78 MB (+12 since launch) · WebContent 184 MB"
+    /// Returns instantly; the WebContent value is whatever was last
+    /// resolved asynchronously. We kick off a fresh background refresh
+    /// so the NEXT menu open is up-to-date.
     static func summary() -> String {
         let cur = currentRSS()
-        let web = webContentRSS()
         let delta = Int64(cur) - Int64(launchRSS)
         var parts = ["App \(format(cur))"]
         let sign = delta >= 0 ? "+" : "−"
         parts.append("(\(sign)\(format(UInt64(abs(delta)))) since launch)")
-        if web > 0 { parts.append("· WebContent \(format(web))") }
+        if cachedWebContent > 0 {
+            parts.append("· WebContent \(format(cachedWebContent))")
+        }
+        refreshWebContentInBackground()
         return parts.joined(separator: " ")
+    }
+
+    private static func refreshWebContentInBackground() {
+        guard !refreshInFlight else { return }
+        refreshInFlight = true
+        DispatchQueue.global(qos: .utility).async {
+            let v = webContentRSS()
+            DispatchQueue.main.async {
+                cachedWebContent = v
+                refreshInFlight = false
+            }
+        }
     }
 
     private static func format(_ bytes: UInt64) -> String {
