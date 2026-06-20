@@ -20,11 +20,35 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
     }
 
+    /// NSWindow subclass that intercepts mouse side-buttons before they
+    /// reach the responder chain. Going through sendEvent is the only way
+    /// to reliably catch button 3 / 4 — NSEvent.addLocalMonitorForEvents
+    /// doesn't fire when the hidden WebView's NSResponder grabs the event
+    /// first. macOS guarantees sendEvent is called for every event on its
+    /// way INTO the window, so this catches them no matter what.
+    private final class MouseInterceptingWindow: NSWindow {
+        override func sendEvent(_ event: NSEvent) {
+            if event.type == .otherMouseDown,
+               Preferences.shared.nativeUIMode {
+                switch event.buttonNumber {
+                case 3:
+                    NativeShellViewModel.shared.goBack()
+                    return
+                case 4, 5:
+                    NativeShellViewModel.shared.goForward()
+                    return
+                default: break
+                }
+            }
+            super.sendEvent(event)
+        }
+    }
+
     private func build() {
         // Plain titled window — NO fullSizeContentView, because YT Music's
         // popup dialogs (edit playlist cover, etc.) need the top of the
         // content area to be unobstructed by the title bar/traffic lights.
-        let w = NSWindow(
+        let w = MouseInterceptingWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
