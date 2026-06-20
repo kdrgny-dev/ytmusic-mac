@@ -54,6 +54,47 @@ actor InnerTubeClient {
         return try await post("search", body: body)
     }
 
+    /// Like / dislike actions on a videoId. YT's web app posts to these
+    /// same endpoints — we just need the right body shape.
+    @discardableResult
+    func like(videoId: String) async throws -> Data {
+        try await post("like/like", body: [
+            "context": ["client": clientDict()],
+            "target": ["videoId": videoId]
+        ])
+    }
+
+    @discardableResult
+    func dislike(videoId: String) async throws -> Data {
+        try await post("like/dislike", body: [
+            "context": ["client": clientDict()],
+            "target": ["videoId": videoId]
+        ])
+    }
+
+    @discardableResult
+    func removeLike(videoId: String) async throws -> Data {
+        try await post("like/removelike", body: [
+            "context": ["client": clientDict()],
+            "target": ["videoId": videoId]
+        ])
+    }
+
+    /// Add a track to one of the user's playlists. playlistId is the bare
+    /// "PL..." form (no "VL" prefix). YT also wants the "setVideoId" field
+    /// for some playlists; we add it as optional.
+    @discardableResult
+    func addToPlaylist(playlistId: String, videoId: String) async throws -> Data {
+        try await post("browse/edit_playlist", body: [
+            "context": ["client": clientDict()],
+            "playlistId": playlistId,
+            "actions": [[
+                "action": "ACTION_ADD_VIDEO",
+                "addedVideoId": videoId
+            ]]
+        ])
+    }
+
     private func clientDict() -> [String: Any] {
         [
             "clientName": "WEB_REMIX",

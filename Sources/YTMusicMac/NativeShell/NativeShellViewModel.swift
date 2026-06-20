@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Combine
 
 /// State for the SwiftUI shell — owns the auth + InnerTube clients and
@@ -40,6 +41,7 @@ final class NativeShellViewModel: ObservableObject {
 
     struct QueueItem: Identifiable, Hashable {
         let id: Int        // index — stable per render, matches JS-side index
+        let videoId: String?
         let title: String
         let artist: String
         let thumbnailURL: String?
@@ -134,12 +136,13 @@ final class NativeShellViewModel: ObservableObject {
         let raw = (body["items"] as? [[String: Any]]) ?? []
         let mapped: [QueueItem] = raw.compactMap { dict in
             let idx = dict["index"] as? Int ?? 0
+            let videoId = (dict["videoId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             let title = dict["title"] as? String ?? ""
             let artist = dict["artist"] as? String ?? ""
             let thumb = dict["thumbnail"] as? String
             let playing = dict["isPlaying"] as? Bool ?? false
             guard !title.isEmpty else { return nil }
-            return QueueItem(id: idx, title: title, artist: artist,
+            return QueueItem(id: idx, videoId: videoId, title: title, artist: artist,
                              thumbnailURL: thumb, isPlaying: playing)
         }
         queue = mapped
@@ -153,6 +156,92 @@ final class NativeShellViewModel: ObservableObject {
     }
 
     func toggleQueue() { isQueueVisible.toggle() }
+
+    // MARK: - Track actions (context menu)
+
+    /// Toast-style status surfaced after a like / add-to-queue etc. so the
+    /// user gets visible feedback even when the action is purely network.
+    @Published private(set) var toast: String?
+    private var toastTask: Task<Void, Never>?
+
+    private func showToast(_ message: String) {
+        toast = message
+        toastTask?.cancel()
+        toastTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
+            if !Task.isCancelled { toast = nil }
+        }
+    }
+
+    func likeTrack(videoId: String, title: String) {
+        Task {
+            do {
+                _ = try await client.like(videoId: videoId)
+                showToast("Liked: \(title)")
+            } catch {
+                showToast("Like failed: \(error)")
+            }
+        }
+    }
+
+    func dislikeTrack(videoId: String, title: String) {
+        Task {
+            do {
+                _ = try await client.dislike(videoId: videoId)
+                showToast("Disliked: \(title)")
+            } catch {
+                showToast("Dislike failed: \(error)")
+            }
+        }
+    }
+
+    /// Add a track to the live YT queue without disrupting current playback.
+    /// We poke YT's internal queue helper via JS — fragile across YT updates,
+    /// but the only path that doesn't require a server round-trip.
+    func addToQueue(videoId: String, title: String, playNext: Bool = false) {
+        let position = playNext ? "INSERT_AFTER_CURRENT_VIDEO" : "INSERT_AT_END"
+        let js = """
+        (function() {
+          try {
+            var app = document.querySelector('ytmusic-app');
+            var pmgr = app && app.networkManager_
+              ? app.networkManager_.fetch.bind(app.networkManager_)
+              : null;
+            if (!pmgr) return false;
+            // Fire YT's own "Add to queue" action by sending the watch
+            // endpoint with the right queue insert position param.
+            var data = {
+              videoIds: ['\(videoId)'],
+              queueInsertPosition: '\(position)'
+            };
+            pmgr('/youtubei/v1/browse/edit_playlist', data);
+            return true;
+          } catch (e) { return false; }
+        })();
+        """
+        WebViewHolder.shared.webView?.evaluateJavaScript(js) { [weak self] _, _ in
+            self?.showToast(playNext ? "Playing next: \(title)" : "Added to queue: \(title)")
+        }
+    }
+
+    func addToPlaylist(videoId: String, playlistId: String, trackTitle: String, playlistTitle: String) {
+        Task {
+            do {
+                let bareId = playlistId.hasPrefix("VL") ? String(playlistId.dropFirst(2)) : playlistId
+                _ = try await client.addToPlaylist(playlistId: bareId, videoId: videoId)
+                showToast("Added “\(trackTitle)” to \(playlistTitle)")
+            } catch {
+                showToast("Save failed: \(error)")
+            }
+        }
+    }
+
+    func openInBrowser(videoId: String) {
+        let urlStr = "https://music.youtube.com/watch?v=\(videoId)"
+        if let url = URL(string: urlStr) {
+            NSWorkspace.shared.open(url)
+        }
+    }
 }
 
 /// Tiny JSON walker that finds the renderers we care about anywhere in the

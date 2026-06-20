@@ -19,27 +19,49 @@ struct NativeShellView: View {
     private let strokeColor = Color.white.opacity(0.08)
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                Sidebar(bg: bgSurface, stroke: strokeColor, vm: vm)
-                Divider().background(strokeColor)
-                MainContent(bg: bgBase, vm: vm)
-                if vm.isQueueVisible {
+        ZStack(alignment: .bottom) {
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    Sidebar(bg: bgSurface, stroke: strokeColor, vm: vm)
                     Divider().background(strokeColor)
-                    QueuePanel(bg: bgSurface, raised: bgRaised, vm: vm)
-                        .transition(.move(edge: .trailing))
+                    MainContent(bg: bgBase, vm: vm)
+                    if vm.isQueueVisible {
+                        Divider().background(strokeColor)
+                        QueuePanel(bg: bgSurface, raised: bgRaised, vm: vm)
+                            .transition(.move(edge: .trailing))
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                Divider().background(strokeColor)
+
+                PlayerBar(bg: bgSurface, raised: bgRaised, vm: vm)
+                    .frame(height: 96)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider().background(strokeColor)
-
-            PlayerBar(bg: bgSurface, raised: bgRaised, vm: vm)
-                .frame(height: 96)
+            if let msg = vm.toast {
+                Text(msg)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.black.opacity(0.85))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+                    .padding(.bottom, 112) // above the player bar
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .zIndex(10)
+            }
         }
         .background(bgBase)
         .preferredColorScheme(.dark)
         .animation(.easeInOut(duration: 0.18), value: vm.isQueueVisible)
+        .animation(.easeInOut(duration: 0.2), value: vm.toast)
         .onAppear { vm.loadPlaylistsIfNeeded() }
     }
 }
@@ -292,11 +314,43 @@ private struct PlaylistDetailView: View {
                             TrackRow(index: idx + 1, track: track)
                         }
                         .buttonStyle(.plain)
+                        .contextMenu { trackContextMenu(for: track) }
                     }
                 }
                 .padding(.horizontal, 12)
             }
         }
+    }
+
+    @ViewBuilder
+    private func trackContextMenu(for t: NativeShellViewModel.TrackSummary) -> some View {
+        Button("Play") { vm.playTrack(t) }
+        Button("Play next") {
+            vm.addToQueue(videoId: t.id, title: t.title, playNext: true)
+        }
+        Button("Add to queue") {
+            vm.addToQueue(videoId: t.id, title: t.title)
+        }
+        Divider()
+        Button("Like") { vm.likeTrack(videoId: t.id, title: t.title) }
+        Button("Dislike") { vm.dislikeTrack(videoId: t.id, title: t.title) }
+        Divider()
+        Menu("Save to playlist") {
+            if vm.playlists.isEmpty {
+                Text("Loading playlists…")
+            } else {
+                ForEach(vm.playlists) { p in
+                    Button(p.title) {
+                        vm.addToPlaylist(videoId: t.id,
+                                         playlistId: p.id,
+                                         trackTitle: t.title,
+                                         playlistTitle: p.title)
+                    }
+                }
+            }
+        }
+        Divider()
+        Button("Open in browser") { vm.openInBrowser(videoId: t.id) }
     }
 }
 
@@ -557,11 +611,39 @@ private struct QueuePanel: View {
                             QueueRow(item: item, raised: raised)
                         }
                         .buttonStyle(.plain)
+                        .contextMenu { queueContextMenu(for: item) }
                     }
                 }
                 .padding(.horizontal, 6)
                 .padding(.vertical, 6)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func queueContextMenu(for item: NativeShellViewModel.QueueItem) -> some View {
+        Button("Jump to this track") { vm.jumpToQueueIndex(item.id) }
+        if let vid = item.videoId {
+            Divider()
+            Button("Like") { vm.likeTrack(videoId: vid, title: item.title) }
+            Button("Dislike") { vm.dislikeTrack(videoId: vid, title: item.title) }
+            Divider()
+            Menu("Save to playlist") {
+                if vm.playlists.isEmpty {
+                    Text("Loading playlists…")
+                } else {
+                    ForEach(vm.playlists) { p in
+                        Button(p.title) {
+                            vm.addToPlaylist(videoId: vid,
+                                             playlistId: p.id,
+                                             trackTitle: item.title,
+                                             playlistTitle: p.title)
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button("Open in browser") { vm.openInBrowser(videoId: vid) }
         }
     }
 }

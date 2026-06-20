@@ -595,8 +595,27 @@ enum PlayerBridge {
                            item.getAttribute('aria-selected') === 'true' ||
                            item.classList.contains('selected');
             if (selected) playingIndex = i;
+            // videoId lives on the queue item's data property — needed for
+            // context-menu actions (like, add-to-playlist, etc.).
+            var videoId = '';
+            try {
+              var d = item.data || (item.data_ && item.data_.itemData) || null;
+              if (d && d.videoId) videoId = d.videoId;
+              if (!videoId && d && d.endpoint && d.endpoint.watchEndpoint) {
+                videoId = d.endpoint.watchEndpoint.videoId || '';
+              }
+              if (!videoId) {
+                // fallback: search any anchor for v= param
+                var a = item.querySelector('a[href*="watch?v="]');
+                if (a) {
+                  var m = a.href.match(/v=([^&]+)/);
+                  if (m) videoId = m[1];
+                }
+              }
+            } catch (e) {}
             out.push({
               index: i,
+              videoId: videoId,
               title: titleEl ? titleEl.textContent.trim() : '',
               artist: artistEl ? artistEl.textContent.trim() : '',
               thumbnail: imgEl ? imgEl.src : '',
