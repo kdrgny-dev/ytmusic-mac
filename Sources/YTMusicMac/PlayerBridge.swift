@@ -773,23 +773,42 @@ enum PlayerBridge {
       }
       tryExtract();
       window.addEventListener('yt-navigate-finish', tryExtract);
-      // yt-navigate-finish is YT's canonical SPA-navigation event and covers
-      // virtually all transitions. We keep a slow URL-poll as a safety net
-      // (some Polymer redirects don't fire it) but at 2s instead of 800ms.
-      var __ytmLastUrl = location.href;
-      setInterval(function() {
-        if (location.href !== __ytmLastUrl) {
-          __ytmLastUrl = location.href;
-          tryExtract();
+
+      // Sidebar + tile work used to be 6000ms setInterval — querySelectorAll
+      // over the whole DOM, every six seconds, forever. Now we observe the
+      // two regions we actually care about (sidebar guide + main content
+      // area) and only react when their DOM changes. Debounced 300ms so a
+      // flurry of mutations (e.g. virtualized list scroll) coalesces.
+      var __ytmObsTimer = null;
+      function scheduleObs() {
+        if (__ytmObsTimer) return;
+        __ytmObsTimer = setTimeout(function() {
+          __ytmObsTimer = null;
+          decorateSidebar();
+          scrapeVisibleTiles();
+        }, 300);
+      }
+      function installObservers() {
+        var sidebar = q('ytmusic-guide-renderer') || q('tp-yt-app-drawer#guide');
+        var main = q('ytmusic-browse-response') || q('#content.ytmusic-app-layout');
+        if (!sidebar && !main) return false;
+        if (sidebar && !sidebar.__ytmObs) {
+          sidebar.__ytmObs = true;
+          new MutationObserver(scheduleObs).observe(sidebar, { childList: true, subtree: true });
         }
-      }, 2000);
-      // Sidebar/tile refresh: was 2500ms (heavy querySelectorAll over the
-      // whole page). 6000ms is still responsive enough for lazy-loaded
-      // shelves but cuts background CPU ~2.4x.
-      setInterval(function() {
-        decorateSidebar();
-        scrapeVisibleTiles();
-      }, 6000);
+        if (main && !main.__ytmObs) {
+          main.__ytmObs = true;
+          new MutationObserver(scheduleObs).observe(main, { childList: true, subtree: true });
+        }
+        return !!(sidebar || main);
+      }
+      // Retry attach until both targets exist (YT mounts them asynchronously).
+      var __ytmObsRetry = setInterval(function() {
+        if (installObservers()) {
+          clearInterval(__ytmObsRetry);
+          scheduleObs();
+        }
+      }, 1000);
     })();
     """#
 }

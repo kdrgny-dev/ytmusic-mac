@@ -38,6 +38,13 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
     }
 
     private func build() -> WKWebView {
+        // Cap URLCache so YT's image responses (album art, thumbnails) don't
+        // grow without bound over a long session. 32 MB memory / 128 MB disk
+        // is plenty for browsing a playlist or two while staying tight.
+        // macOS' default leaves these unset — silent unbounded growth.
+        URLCache.shared = URLCache(memoryCapacity: 32 * 1024 * 1024,
+                                   diskCapacity: 128 * 1024 * 1024)
+
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.mediaTypesRequiringUserActionForPlayback = []

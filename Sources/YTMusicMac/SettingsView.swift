@@ -21,6 +21,10 @@ struct SettingsView: View {
                 Toggle("Always shuffle (re-enables shuffle whenever YT Music turns it off)",
                        isOn: $prefs.alwaysShuffle)
             }
+            Section("Performance") {
+                Toggle("Auto-reload after 30 min paused (frees memory; you stay signed in)",
+                       isOn: $prefs.autoReloadOnIdle)
+            }
         }
         .formStyle(.grouped)
     }

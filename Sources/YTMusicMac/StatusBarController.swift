@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import SwiftUI
 
-final class StatusBarController {
+final class StatusBarController: NSObject, NSMenuDelegate {
     static let shared = StatusBarController()
 
     private var statusItem: NSStatusItem?
@@ -11,6 +11,7 @@ final class StatusBarController {
     private var playPauseItem: NSMenuItem?
     private var notifyToggleItem: NSMenuItem?
     private var sleepItem: NSMenuItem?
+    private var memoryItem: NSMenuItem?
 
     func install() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -19,7 +20,9 @@ final class StatusBarController {
             button.image?.isTemplate = true
             button.imagePosition = .imageLeft
         }
-        item.menu = buildMenu()
+        let menu = buildMenu()
+        menu.delegate = self
+        item.menu = menu
         self.statusItem = item
 
         MediaController.shared.$nowPlaying
@@ -85,12 +88,27 @@ final class StatusBarController {
 
         menu.addItem(.separator())
 
+        let memory = NSMenuItem(title: "Memory: …", action: nil, keyEquivalent: "")
+        memory.isEnabled = false
+        menu.addItem(memory)
+        memoryItem = memory
+
+        menu.addItem(.separator())
+
         menu.addItem(AppDelegate.settingsMenuItem())
 
         let quit = NSMenuItem(title: "Quit YouTube Music", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
 
         return menu
+    }
+
+    // MARK: - NSMenuDelegate
+
+    /// Refresh the memory line just before the menu draws. Avoids burning
+    /// a timer in the background just to keep that one line live.
+    func menuWillOpen(_ menu: NSMenu) {
+        memoryItem?.title = "Memory: " + MemoryDiagnostic.summary()
     }
 
     private func buildSleepSubmenu() -> NSMenu {

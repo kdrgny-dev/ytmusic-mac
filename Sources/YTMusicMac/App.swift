@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MediaController.shared.setup()
         StatusBarController.shared.install()
         GlobalHotkeys.shared.install()
+        IdleReloader.shared.start()
         buildMainMenu()
         MainWindowController.shared.show()
     }

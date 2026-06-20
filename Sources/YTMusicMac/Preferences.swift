@@ -65,6 +65,10 @@ final class Preferences: ObservableObject {
         }
     }
 
+    @Published var autoReloadOnIdle: Bool {
+        didSet { defaults.set(autoReloadOnIdle, forKey: Keys.autoReloadOnIdle) }
+    }
+
     private init() {
         self.notifyOnTrackChange = defaults.bool(forKey: Keys.notify)
         self.miniPlayerAlwaysOnTop = defaults.object(forKey: Keys.miniOnTop) as? Bool ?? true
@@ -74,6 +78,7 @@ final class Preferences: ObservableObject {
         self.compactMode = defaults.bool(forKey: Keys.compactMode)
         self.stackedHeader = defaults.bool(forKey: Keys.stackedHeader)
         self.alwaysShuffle = defaults.object(forKey: Keys.alwaysShuffle) as? Bool ?? true
+        self.autoReloadOnIdle = defaults.object(forKey: Keys.autoReloadOnIdle) as? Bool ?? true
         let raw = defaults.string(forKey: Keys.theme) ?? Theme.default.rawValue
         self.theme = Theme(rawValue: raw) ?? .default
     }
@@ -88,6 +93,7 @@ final class Preferences: ObservableObject {
         static let stackedHeader = "pref.stackedHeader"
         static let theme = "pref.theme"
         static let alwaysShuffle = "pref.alwaysShuffle"
+        static let autoReloadOnIdle = "pref.autoReloadOnIdle"
     }
 }
 
