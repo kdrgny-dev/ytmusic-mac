@@ -69,7 +69,12 @@ struct NativeShellView: View {
         .animation(.easeInOut(duration: 0.18), value: vm.isQueueVisible)
         .animation(.easeInOut(duration: 0.18), value: vm.isSearchVisible)
         .animation(.easeInOut(duration: 0.2), value: vm.toast)
-        .onAppear { vm.loadPlaylistsIfNeeded() }
+        .onAppear {
+            vm.loadPlaylistsIfNeeded()
+            // Land users on Home by default so first impression is content,
+            // not the "Pick a playlist" placeholder.
+            vm.goHome()
+        }
     }
 }
 
@@ -450,13 +455,16 @@ private struct HomeView: View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 28) {
                 header
-                if vm.homeLoading && vm.homeShelves.isEmpty {
+                if vm.homeLoading && vm.homeShelves.isEmpty && vm.genres.isEmpty {
                     loadingState
                 } else if let msg = vm.homeError, vm.homeShelves.isEmpty {
                     errorState(msg)
                 } else {
                     ForEach(vm.homeShelves) { shelf in
                         ShelfRow(shelf: shelf, vm: vm)
+                    }
+                    if !vm.genres.isEmpty {
+                        GenresSection(genres: vm.genres, vm: vm)
                     }
                     Spacer(minLength: 40)
                 }
@@ -469,12 +477,16 @@ private struct HomeView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Home")
+                Text(greeting)
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundColor(.white.opacity(0.55))
+                Text("Sana özel öneriler")
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.white)
-                Text("Mixed for you, fresh from YT Music")
+                Text("YT Music'in senin için karıştırdığı playlist'ler, sanatçılar ve türler")
                     .font(.system(size: 12))
-                    .foregroundColor(.white.opacity(0.55))
+                    .foregroundColor(.white.opacity(0.5))
             }
             Spacer()
             Button(action: { vm.reloadHome() }) {
@@ -486,7 +498,19 @@ private struct HomeView: View {
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
-            .help("Refresh")
+            .help("Yenile")
+        }
+    }
+
+    /// Greeting changes through the day so home doesn't feel static
+    /// across long sessions. No name yet — we don't fetch user identity.
+    private var greeting: String {
+        let h = Calendar.current.component(.hour, from: Date())
+        switch h {
+        case 5..<12:  return "GÜNAYDIN"
+        case 12..<18: return "İYİ GÜNLER"
+        case 18..<23: return "İYİ AKŞAMLAR"
+        default:      return "İYİ GECELER"
         }
     }
 
@@ -556,6 +580,88 @@ private struct ShelfRow: View {
                 .padding(.bottom, 4)
             }
         }
+    }
+}
+
+private struct GenresSection: View {
+    let genres: [NativeShellViewModel.GenreChip]
+    @ObservedObject var vm: NativeShellViewModel
+
+    /// Adaptive grid — chips wrap to fill the available width regardless
+    /// of window size. Min item width keeps them readable on a tight
+    /// resize.
+    private let columns = [GridItem(.adaptive(minimum: 180), spacing: 12)]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("MÜZİK TÜRLERİ & MOOD'LAR")
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundColor(.white.opacity(0.5))
+                Text("Tarz seç")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(genres) { g in
+                    Button(action: { vm.openGenre(g) }) {
+                        GenreChipView(genre: g)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
+/// Solid-color rectangle with the genre title. Color is derived
+/// deterministically from the title so the same genre always looks the
+/// same across sessions, and the palette spreads so adjacent chips don't
+/// collide.
+private struct GenreChipView: View {
+    let genre: NativeShellViewModel.GenreChip
+    @State private var hovered: Bool = false
+
+    private var bg: Color {
+        // Hash → hue. Deterministic + spread.
+        let hash = abs(genre.title.unicodeScalars.reduce(0) { $0 &+ Int($1.value) })
+        let hue = Double(hash % 360) / 360.0
+        return Color(hue: hue, saturation: 0.55, brightness: 0.45)
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(bg)
+                .frame(height: 76)
+            Text(genre.title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            // Decorative tilted square in the bottom-right corner —
+            // same visual idiom YT Music uses for these tiles.
+            GeometryReader { geo in
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.black.opacity(0.25))
+                    .frame(width: 50, height: 50)
+                    .rotationEffect(.degrees(25))
+                    .offset(x: geo.size.width - 40, y: geo.size.height - 30)
+            }
+            .clipped()
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.white.opacity(hovered ? 0.25 : 0), lineWidth: 1)
+        )
+        .scaleEffect(hovered ? 1.02 : 1.0)
+        .animation(.easeOut(duration: 0.12), value: hovered)
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
     }
 }
 

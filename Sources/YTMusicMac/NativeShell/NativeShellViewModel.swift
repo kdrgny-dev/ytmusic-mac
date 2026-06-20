@@ -63,17 +63,29 @@ final class NativeShellViewModel: ObservableObject {
 
     /// Which view fills the main content area. Mutually exclusive — the
     /// shell only ever shows one. Drives MainContent's switch.
+    /// Defaults to .home so the user lands on recommendations instead of
+    /// an empty stage.
     enum MainSection: Equatable {
         case empty
         case home
         case playlist(PlaylistSummary)
     }
-    @Published private(set) var mainSection: MainSection = .empty
+    @Published private(set) var mainSection: MainSection = .home
 
     @Published private(set) var homeShelves: [HomeShelf] = []
     @Published private(set) var homeLoading: Bool = false
     @Published private(set) var homeError: String?
     private var homeLoaded: Bool = false
+
+    /// Mood / genre chips that show up at the bottom of Home — fetched
+    /// from a separate FEmusic_moods_and_genres browse and merged into
+    /// the same view model so the view stays simple.
+    struct GenreChip: Identifiable, Hashable {
+        let id: String        // browseId of the genre/mood landing
+        let title: String
+        let params: String?   // continuation token; passed to the next browse
+    }
+    @Published private(set) var genres: [GenreChip] = []
 
     struct QueueItem: Identifiable, Hashable {
         let id: Int        // index — stable per render, matches JS-side index
@@ -194,6 +206,18 @@ final class NativeShellViewModel: ObservableObject {
         Task { await loadTracks(for: p) }
     }
 
+    /// Genre / mood chip click — for now we navigate the WebView to the
+    /// category landing page (it's a rich grid of mood-tuned playlists),
+    /// since a native renderer for it is a separate Phase 2 task.
+    func openGenre(_ g: GenreChip) {
+        let bareId = g.id.hasPrefix("VL") ? String(g.id.dropFirst(2)) : g.id
+        let urlStr = "https://music.youtube.com/browse/\(bareId)"
+        if let url = URL(string: urlStr) {
+            WebViewHolder.shared.webView?.load(URLRequest(url: url))
+        }
+        showToast("\(g.title) — opening")
+    }
+
     /// Click handler for a home shelf card — routes by kind so each card
     /// type lands in the right place (song plays, playlist opens detail,
     /// album/artist navigate the WebView until they get native views).
@@ -296,15 +320,28 @@ final class NativeShellViewModel: ObservableObject {
         guard !homeLoading else { return }
         homeLoading = true
         defer { homeLoading = false }
-        do {
-            let data = try await client.browse(browseId: "FEmusic_home")
-            let shelves = HomeParser.parse(data: data)
-            homeShelves = shelves
-            homeError = shelves.isEmpty ? "No content right now." : nil
-            homeLoaded = true
-        } catch {
-            homeError = "Couldn't load home."
-        }
+        // Kick off shelves + genres concurrently so Home arrives fully
+        // populated, not in two visible pops.
+        async let shelvesTask: [HomeShelf] = {
+            do {
+                let data = try await self.client.browse(browseId: "FEmusic_home")
+                return HomeParser.parse(data: data)
+            } catch { return [] }
+        }()
+        async let genresTask: [GenreChip] = {
+            do {
+                let data = try await self.client.browse(browseId: "FEmusic_moods_and_genres")
+                return GenreParser.parse(data: data)
+            } catch { return [] }
+        }()
+        let shelves = await shelvesTask
+        let genreChips = await genresTask
+        homeShelves = shelves
+        genres = genreChips
+        homeError = shelves.isEmpty && genreChips.isEmpty
+            ? "Couldn't load home."
+            : nil
+        homeLoaded = true
     }
 
     func goExplore() {
@@ -958,6 +995,45 @@ enum HomeParser {
               let runs = text["runs"] as? [[String: Any]]
         else { return nil }
         return runs.first?["text"] as? String
+    }
+}
+
+/// Pulls the genre/mood chips out of the FEmusic_moods_and_genres
+/// browse response. The shape is a sectionList whose grid contents are
+/// `musicNavigationButtonRenderer` entries — each is one chip with a
+/// title and a browseEndpoint that points to the category.
+enum GenreParser {
+    static func parse(data: Data) -> [NativeShellViewModel.GenreChip] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return [] }
+        var out: [NativeShellViewModel.GenreChip] = []
+        var seen = Set<String>()
+        walk(json) { dict in
+            guard let renderer = dict["musicNavigationButtonRenderer"] as? [String: Any],
+                  let chip = extract(renderer),
+                  seen.insert(chip.id).inserted else { return }
+            out.append(chip)
+        }
+        return out
+    }
+
+    private static func walk(_ node: Any, visit: ([String: Any]) -> Void) {
+        if let dict = node as? [String: Any] {
+            visit(dict)
+            for value in dict.values { walk(value, visit: visit) }
+        } else if let arr = node as? [Any] {
+            for value in arr { walk(value, visit: visit) }
+        }
+    }
+
+    private static func extract(_ renderer: [String: Any]) -> NativeShellViewModel.GenreChip? {
+        let title = ((renderer["buttonText"] as? [String: Any])?["runs"] as? [[String: Any]])?
+            .compactMap { $0["text"] as? String }.joined() ?? ""
+        let browse = (renderer["clickCommand"] as? [String: Any])?["browseEndpoint"] as? [String: Any]
+            ?? (renderer["onTapCommand"] as? [String: Any])?["browseEndpoint"] as? [String: Any]
+        let browseId = browse?["browseId"] as? String
+        let params = browse?["params"] as? String
+        guard let id = browseId, !title.isEmpty else { return nil }
+        return .init(id: id, title: title, params: params)
     }
 }
 
