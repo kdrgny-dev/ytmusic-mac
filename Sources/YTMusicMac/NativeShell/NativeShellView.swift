@@ -424,6 +424,8 @@ private struct MainContent: View {
                 HomeView(vm: vm)
             case .playlist(let p):
                 PlaylistDetailView(playlist: p, vm: vm)
+            case .category:
+                CategoryView(vm: vm)
             case .empty:
                 emptyState
             }
@@ -442,6 +444,98 @@ private struct MainContent: View {
             Text("Sidebar → Home for recommendations.")
                 .font(.system(size: 12))
                 .foregroundColor(.white.opacity(0.45))
+        }
+    }
+}
+
+// MARK: - Category (mood/genre) view
+
+private struct CategoryView: View {
+    @ObservedObject var vm: NativeShellViewModel
+
+    private let columns = [GridItem(.adaptive(minimum: 160), spacing: 16)]
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                if vm.categoryLoading && vm.categoryPlaylists.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                } else if let msg = vm.categoryError, vm.categoryPlaylists.isEmpty {
+                    Text(msg)
+                        .font(.system(size: 13))
+                        .foregroundColor(.white.opacity(0.5))
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                } else {
+                    LazyVGrid(columns: columns, spacing: 18) {
+                        ForEach(vm.categoryPlaylists) { p in
+                            Button(action: { vm.openPlaylist(p) }) {
+                                CategoryPlaylistCard(playlist: p)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    Spacer(minLength: 40)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("KATEGORİ")
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.8)
+                .foregroundColor(.white.opacity(0.55))
+            Text(vm.categoryTitle)
+                .font(.system(size: 28, weight: .bold))
+                .foregroundColor(.white)
+            if !vm.categoryPlaylists.isEmpty {
+                Text("\(vm.categoryPlaylists.count) playlist")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.5))
+            }
+        }
+    }
+}
+
+private struct CategoryPlaylistCard: View {
+    let playlist: NativeShellViewModel.PlaylistSummary
+    @State private var hovered: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            cover
+                .frame(width: 160, height: 160)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .scaleEffect(hovered ? 1.03 : 1.0)
+                .shadow(color: .black.opacity(hovered ? 0.5 : 0), radius: 12, y: 6)
+                .animation(.easeOut(duration: 0.15), value: hovered)
+            Text(playlist.title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundColor(.white)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .frame(width: 160, alignment: .leading)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+    }
+
+    @ViewBuilder
+    private var cover: some View {
+        if let s = playlist.thumbnailURL, let url = URL(string: s) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let img): img.resizable().aspectRatio(contentMode: .fill)
+                default: Color.white.opacity(0.06)
+                }
+            }
+        } else {
+            Color.white.opacity(0.06)
         }
     }
 }
@@ -553,7 +647,8 @@ private struct ShelfRow: View {
             title: shelf.title,
             subtitle: shelf.subtitle,
             items: shelf.items,
-            pageSize: 3
+            pageSize: 3,
+            estimatedItemWidth: 162   // 150 card + 12 spacing
         ) { card in
             Button(action: { vm.openHomeCard(card) }) {
                 HomeCardView(card: card)
@@ -573,15 +668,29 @@ private struct CarouselSection<Item: Identifiable, Content: View>: View where It
     let items: [Item]
     /// How many items to step per chevron click.
     let pageSize: Int
+    /// Approximate per-item width (incl. spacing). Used to decide whether
+    /// the row needs scrolling at all — when the content fits the
+    /// container the chevrons hide entirely so we don't decorate
+    /// non-interactive rows.
+    let estimatedItemWidth: CGFloat
     @ViewBuilder let content: (Item) -> Content
 
+    /// Container width — measured via GeometryReader behind the carousel
+    /// so we can decide whether chevrons are even needed.
+    @State private var containerWidth: CGFloat = 0
     /// Index of the leading visible item — drives the chevron's enabled
     /// state. Updated by the chevrons; trackpad scroll doesn't (and
     /// doesn't need to — we just want sane enable/disable).
     @State private var currentIndex: Int = 0
 
-    private var canLeft: Bool  { currentIndex > 0 }
-    private var canRight: Bool { currentIndex < max(0, items.count - 1) }
+    private var contentWidth: CGFloat {
+        CGFloat(items.count) * estimatedItemWidth
+    }
+    private var needsScroll: Bool {
+        containerWidth > 0 && contentWidth > containerWidth + 1
+    }
+    private var canLeft: Bool  { needsScroll && currentIndex > 0 }
+    private var canRight: Bool { needsScroll && currentIndex < max(0, items.count - 1) }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -596,6 +705,12 @@ private struct CarouselSection<Item: Identifiable, Content: View>: View where It
                     .padding(.bottom, 4)
                 }
             }
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: CarouselWidthKey.self, value: geo.size.width)
+                }
+            )
+            .onPreferenceChange(CarouselWidthKey.self) { containerWidth = $0 }
         }
     }
 
@@ -613,8 +728,10 @@ private struct CarouselSection<Item: Identifiable, Content: View>: View where It
                     .foregroundColor(.white)
             }
             Spacer()
-            navChevron(.leftward, proxy: proxy)
-            navChevron(.rightward, proxy: proxy)
+            if needsScroll {
+                navChevron(.leftward, proxy: proxy)
+                navChevron(.rightward, proxy: proxy)
+            }
         }
     }
 
@@ -652,6 +769,13 @@ private struct CarouselSection<Item: Identifiable, Content: View>: View where It
     }
 }
 
+private struct CarouselWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 /// One section of the moods/genres landing — its own row with a section
 /// title and a horizontally scrolling carousel of coloured chips. We do
 /// one per YT-side gridRenderer so the user gets the same grouping the
@@ -665,7 +789,8 @@ private struct GenreCarousel: View {
             title: section.title,
             subtitle: nil,
             items: section.chips,
-            pageSize: 4
+            pageSize: 4,
+            estimatedItemWidth: 212   // 200 chip + 12 spacing
         ) { g in
             Button(action: { vm.openGenre(g) }) {
                 GenreChipView(genre: g)

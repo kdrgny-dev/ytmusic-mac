@@ -69,8 +69,62 @@ final class NativeShellViewModel: ObservableObject {
         case empty
         case home
         case playlist(PlaylistSummary)
+        case category(GenreChip)
     }
     @Published private(set) var mainSection: MainSection = .home
+
+    @Published private(set) var categoryPlaylists: [PlaylistSummary] = []
+    @Published private(set) var categoryLoading: Bool = false
+    @Published private(set) var categoryError: String?
+    @Published private(set) var categoryTitle: String = ""
+
+    // MARK: - Navigation history (back/forward, mouse 4/5 friendly)
+    private var backStack: [MainSection] = []
+    private var forwardStack: [MainSection] = []
+    @Published private(set) var canGoBack: Bool = false
+    @Published private(set) var canGoForward: Bool = false
+
+    private func pushHistory(_ from: MainSection) {
+        guard from != mainSection else { return }
+        backStack.append(from)
+        if backStack.count > 50 { backStack.removeFirst(backStack.count - 50) }
+        forwardStack.removeAll()
+        canGoBack = !backStack.isEmpty
+        canGoForward = false
+    }
+
+    func goBack() {
+        guard let prev = backStack.popLast() else { return }
+        forwardStack.append(mainSection)
+        canGoBack = !backStack.isEmpty
+        canGoForward = !forwardStack.isEmpty
+        apply(section: prev)
+    }
+
+    func goForward() {
+        guard let next = forwardStack.popLast() else { return }
+        backStack.append(mainSection)
+        canGoBack = !backStack.isEmpty
+        canGoForward = !forwardStack.isEmpty
+        apply(section: next)
+    }
+
+    /// Restore main view to a history entry. Re-fires the data load for
+    /// list-bearing sections so the user sees the right tracks/playlists,
+    /// not the last-viewed entity's leftover state.
+    private func apply(section: MainSection) {
+        mainSection = section
+        switch section {
+        case .empty: break
+        case .home: if !homeLoaded { Task { await loadHome() } }
+        case .playlist(let p):
+            selectedPlaylist = p
+            Task { await loadTracks(for: p) }
+        case .category(let g):
+            categoryTitle = g.title
+            Task { await loadCategory(g) }
+        }
+    }
 
     @Published private(set) var homeShelves: [HomeShelf] = []
     @Published private(set) var homeLoading: Bool = false
@@ -216,6 +270,7 @@ final class NativeShellViewModel: ObservableObject {
     /// engine doesn't reshuffle just because someone clicked a playlist
     /// to look at its contents.
     func openPlaylist(_ p: PlaylistSummary) {
+        pushHistory(mainSection)
         selectedPlaylist = p
         mainSection = .playlist(p)
         tracks = []
@@ -223,19 +278,34 @@ final class NativeShellViewModel: ObservableObject {
         Task { await loadTracks(for: p) }
     }
 
-    /// Genre / mood chip click — navigate the WebView with the chip's
-    /// params token. Every chip shares the same browseId so without the
-    /// token YT just shows the landing page. Native category view comes
-    /// in a later pass.
+    /// Genre / mood chip click — opens a native category page that lists
+    /// every playlist YT curates under that mood/genre. The previous
+    /// implementation navigated the hidden WebView which the user couldn't
+    /// see, so clicks felt broken.
     func openGenre(_ g: GenreChip) {
-        var urlStr = "https://music.youtube.com/browse/\(g.browseId)"
-        if !g.params.isEmpty {
-            urlStr += "?params=\(g.params)"
+        pushHistory(mainSection)
+        mainSection = .category(g)
+        categoryTitle = g.title
+        Task { await loadCategory(g) }
+    }
+
+    private func loadCategory(_ g: GenreChip) async {
+        guard !categoryLoading else { return }
+        categoryLoading = true
+        defer { categoryLoading = false }
+        categoryPlaylists = []
+        categoryError = nil
+        do {
+            let data = try await client.browse(
+                browseId: g.browseId.isEmpty ? "FEmusic_moods_and_genres_category" : g.browseId,
+                params: g.params
+            )
+            let cards = CategoryParser.parse(data: data)
+            categoryPlaylists = cards
+            categoryError = cards.isEmpty ? "No playlists in this category." : nil
+        } catch {
+            categoryError = "Couldn't load this category."
         }
-        if let url = URL(string: urlStr) {
-            WebViewHolder.shared.webView?.load(URLRequest(url: url))
-        }
-        showToast("\(g.title) — opening")
     }
 
     /// Click handler for a home shelf card — routes by kind so each card
@@ -328,6 +398,7 @@ final class NativeShellViewModel: ObservableObject {
     /// Used by the sidebar Home / Explore items so the queue context
     /// + autoplay seed line up with what the user is browsing.
     func goHome() {
+        pushHistory(mainSection)
         mainSection = .home
         selectedPlaylist = nil
         // Lazy-load: fetch once per session, refresh on explicit user action.
@@ -1015,6 +1086,50 @@ enum HomeParser {
               let runs = text["runs"] as? [[String: Any]]
         else { return nil }
         return runs.first?["text"] as? String
+    }
+}
+
+/// Pulls every playlist tile out of a moods/genres category response.
+/// The page is structured as a stack of section grids — each contains
+/// musicTwoRowItemRenderer entries that point at a playlist via a VLPL
+/// or VLRDA browseId.
+enum CategoryParser {
+    static func parse(data: Data) -> [NativeShellViewModel.PlaylistSummary] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return [] }
+        var out: [NativeShellViewModel.PlaylistSummary] = []
+        var seen = Set<String>()
+        walk(json) { dict in
+            guard let renderer = dict["musicTwoRowItemRenderer"] as? [String: Any],
+                  let item = extract(renderer),
+                  seen.insert(item.id).inserted else { return }
+            out.append(item)
+        }
+        return out
+    }
+
+    private static func walk(_ node: Any, visit: ([String: Any]) -> Void) {
+        if let dict = node as? [String: Any] {
+            visit(dict)
+            for value in dict.values { walk(value, visit: visit) }
+        } else if let arr = node as? [Any] {
+            for value in arr { walk(value, visit: visit) }
+        }
+    }
+
+    private static func extract(_ renderer: [String: Any]) -> NativeShellViewModel.PlaylistSummary? {
+        let title = ((renderer["title"] as? [String: Any])?["runs"] as? [[String: Any]])?
+            .first?["text"] as? String ?? ""
+        let browseId = ((renderer["navigationEndpoint"] as? [String: Any])?["browseEndpoint"]
+            as? [String: Any])?["browseId"] as? String
+        let thumbs = ((renderer["thumbnailRenderer"] as? [String: Any])?["musicThumbnailRenderer"]
+            as? [String: Any]).flatMap {
+                ($0["thumbnail"] as? [String: Any])?["thumbnails"] as? [[String: Any]]
+            }
+        let thumbURL = thumbs?.last?["url"] as? String
+        guard let id = browseId,
+              id.hasPrefix("VL") || id.hasPrefix("MPRE") || id.hasPrefix("OLAK"),
+              !title.isEmpty else { return nil }
+        return .init(id: id, title: title, thumbnailURL: thumbURL)
     }
 }
 

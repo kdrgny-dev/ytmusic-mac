@@ -18,8 +18,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         StatusBarController.shared.install()
         GlobalHotkeys.shared.install()
         IdleReloader.shared.start()
+        installMouseNavMonitor()
         buildMainMenu()
         MainWindowController.shared.show()
+    }
+
+    /// Hook up Mouse-4 / Mouse-5 (the side buttons on most mice) to the
+    /// Native Mode back / forward history. NSEvent's button numbers for
+    /// those are 3 and 4 respectively. Local monitor — only fires while
+    /// our app is frontmost.
+    private func installMouseNavMonitor() {
+        NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
+            guard Preferences.shared.nativeUIMode else { return event }
+            switch event.buttonNumber {
+            case 3:
+                Task { @MainActor in NativeShellViewModel.shared.goBack() }
+                return nil
+            case 4:
+                Task { @MainActor in NativeShellViewModel.shared.goForward() }
+                return nil
+            default:
+                return event
+            }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
