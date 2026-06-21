@@ -1472,6 +1472,9 @@ private struct PlayerBar: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             transport
+            VolumeControl()
+                .environmentObject(media)
+            SleepTimerControl()
             queueToggle
         }
     }
@@ -1672,6 +1675,156 @@ private struct NowPlayingOverlay: View {
         .buttonStyle(.plain)
         .keyboardShortcut(.escape, modifiers: [])
         .help("Kapat (Esc)")
+    }
+}
+
+// MARK: - Volume + Sleep timer
+
+private struct VolumeControl: View {
+    @EnvironmentObject private var media: MediaController
+    @State private var showSlider: Bool = false
+    /// Local copy so the slider tracks user drag immediately. Kept in
+    /// sync with the bridge's reported volume on every nowPlaying push.
+    @State private var localVolume: Double = 1
+
+    private var speakerIcon: String {
+        if localVolume <= 0 { return "speaker.slash.fill" }
+        if localVolume < 0.33 { return "speaker.fill" }
+        if localVolume < 0.67 { return "speaker.wave.1.fill" }
+        return "speaker.wave.2.fill"
+    }
+
+    var body: some View {
+        Button(action: { showSlider.toggle() }) {
+            Image(systemName: speakerIcon)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white.opacity(0.85))
+                .frame(width: 30, height: 30)
+                .background(showSlider ? Color.white.opacity(0.12) : Color.clear)
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("Ses")
+        .popover(isPresented: $showSlider, arrowEdge: .bottom) {
+            VStack(spacing: 8) {
+                Image(systemName: speakerIcon)
+                    .font(.system(size: 14))
+                    .foregroundColor(.white.opacity(0.7))
+                Slider(value: $localVolume, in: 0...1) { editing in
+                    if !editing { media.run("volume", value: localVolume) }
+                }
+                .controlSize(.mini)
+                .frame(width: 160)
+                Text("\(Int(localVolume * 100))%")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.55))
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(width: 200)
+        }
+        .onAppear { localVolume = media.nowPlaying.volume }
+        .onChange(of: media.nowPlaying.volume) { newValue in
+            // Only follow the bridge if user isn't actively dragging the
+            // slider — popover dismiss handles the final write.
+            if !showSlider { localVolume = newValue }
+        }
+    }
+}
+
+private struct SleepTimerControl: View {
+    @StateObject private var sleep = SleepTimer.shared
+    @State private var showMenu: Bool = false
+
+    private struct Option: Identifiable {
+        let id = UUID()
+        let label: String
+        let mode: SleepTimer.Mode
+    }
+
+    private let options: [Option] = [
+        .init(label: "5 dakika",         mode: .duration(5 * 60)),
+        .init(label: "15 dakika",        mode: .duration(15 * 60)),
+        .init(label: "30 dakika",        mode: .duration(30 * 60)),
+        .init(label: "1 saat",           mode: .duration(60 * 60)),
+        .init(label: "Şarkı bitince",     mode: .endOfTrack)
+    ]
+
+    private var iconName: String {
+        sleep.isActive ? "moon.fill" : "moon"
+    }
+
+    private var countdownLabel: String? {
+        if let r = sleep.remaining, sleep.isActive {
+            let mm = Int(r) / 60
+            let ss = Int(r) % 60
+            return String(format: "%d:%02d", mm, ss)
+        }
+        if case .endOfTrack? = sleep.mode { return "EoT" }
+        return nil
+    }
+
+    var body: some View {
+        Button(action: { showMenu.toggle() }) {
+            HStack(spacing: 4) {
+                Image(systemName: iconName)
+                    .font(.system(size: 12, weight: .semibold))
+                if let label = countdownLabel {
+                    Text(label)
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                }
+            }
+            .foregroundColor(sleep.isActive ? .accentColor : .white.opacity(0.85))
+            .padding(.horizontal, sleep.isActive ? 8 : 0)
+            .frame(height: 30)
+            .frame(minWidth: 30)
+            .background(showMenu ? Color.white.opacity(0.12) : Color.clear)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Uyku zamanlayıcı")
+        .popover(isPresented: $showMenu, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("UYKU ZAMANLAYICI")
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.6)
+                    .foregroundColor(.white.opacity(0.55))
+                    .padding(.bottom, 4)
+                ForEach(options) { opt in
+                    Button(action: {
+                        sleep.start(opt.mode)
+                        showMenu = false
+                    }) {
+                        Text(opt.label)
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.9))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 8)
+                            .background(Color.white.opacity(0.0001))
+                    }
+                    .buttonStyle(.plain)
+                }
+                if sleep.isActive {
+                    Divider().background(Color.white.opacity(0.1)).padding(.vertical, 2)
+                    Button(action: {
+                        sleep.cancel()
+                        showMenu = false
+                    }) {
+                        Text("İptal")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.red.opacity(0.85))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 8)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 10)
+            .frame(width: 200)
+        }
     }
 }
 
