@@ -45,6 +45,13 @@ struct NativeShellView: View {
                     .zIndex(20)
             }
 
+            if vm.isNowPlayingFullscreen {
+                NowPlayingOverlay(vm: vm)
+                    .environmentObject(media)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(15)
+            }
+
             if let msg = vm.toast {
                 Text(msg)
                     .font(.system(size: 12, weight: .medium))
@@ -68,6 +75,7 @@ struct NativeShellView: View {
         .preferredColorScheme(.dark)
         .animation(.easeInOut(duration: 0.18), value: vm.isQueueVisible)
         .animation(.easeInOut(duration: 0.18), value: vm.isSearchVisible)
+        .animation(.easeInOut(duration: 0.22), value: vm.isNowPlayingFullscreen)
         .animation(.easeInOut(duration: 0.2), value: vm.toast)
         .onAppear {
             vm.loadPlaylistsIfNeeded()
@@ -1488,19 +1496,23 @@ private struct PlayerBar: View {
     }
 
     private var artwork: some View {
-        Group {
-            if let img = media.artwork {
-                Image(nsImage: img).resizable().aspectRatio(contentMode: .fill)
-            } else {
-                raised.overlay(
-                    Image(systemName: "music.note")
-                        .font(.system(size: 18))
-                        .foregroundColor(.white.opacity(0.35))
-                )
+        Button(action: { vm.toggleNowPlayingFullscreen() }) {
+            Group {
+                if let img = media.artwork {
+                    Image(nsImage: img).resizable().aspectRatio(contentMode: .fill)
+                } else {
+                    raised.overlay(
+                        Image(systemName: "music.note")
+                            .font(.system(size: 18))
+                            .foregroundColor(.white.opacity(0.35))
+                    )
+                }
             }
+            .frame(width: 56, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
         }
-        .frame(width: 56, height: 56)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .buttonStyle(.plain)
+        .help("Tam ekran sözler")
     }
 
     private var transport: some View {
@@ -1523,6 +1535,143 @@ private struct PlayerBar: View {
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Now playing fullscreen overlay
+
+private struct NowPlayingOverlay: View {
+    @ObservedObject var vm: NativeShellViewModel
+    @EnvironmentObject private var media: MediaController
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            // Album-art blur backdrop. Falls back to a flat dark color
+            // when we don't have artwork (placeholder, no track, etc.).
+            backdrop
+                .ignoresSafeArea()
+
+            HStack(alignment: .center, spacing: 36) {
+                cover
+                info
+            }
+            .padding(.horizontal, 48)
+            .padding(.vertical, 48)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            closeButton
+                .padding(.trailing, 18)
+                .padding(.top, 18)
+        }
+    }
+
+    private var backdrop: some View {
+        ZStack {
+            Color(red: 0.04, green: 0.04, blue: 0.06)
+            if let img = media.artwork {
+                Image(nsImage: img)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .blur(radius: 80, opaque: true)
+                    .opacity(0.55)
+                Color.black.opacity(0.45)
+            }
+        }
+    }
+
+    private var cover: some View {
+        Group {
+            if let img = media.artwork {
+                Image(nsImage: img)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Color.white.opacity(0.06)
+            }
+        }
+        .frame(width: 380, height: 380)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: .black.opacity(0.6), radius: 30, y: 10)
+    }
+
+    private var info: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ÇALIYOR")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundColor(.white.opacity(0.55))
+                Text(media.nowPlaying.hasTrack ? media.nowPlaying.title : "Çalan yok")
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundColor(.white)
+                    .lineLimit(3)
+                Text(media.nowPlaying.artist)
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.75))
+                    .lineLimit(2)
+            }
+
+            Divider().background(Color.white.opacity(0.12))
+
+            lyricsArea
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear { vm.loadLyricsForCurrentTrack() }
+        .onChange(of: media.nowPlaying.videoId) { _ in
+            vm.loadLyricsForCurrentTrack()
+        }
+    }
+
+    @ViewBuilder
+    private var lyricsArea: some View {
+        if vm.lyricsLoading && vm.lyrics == nil {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Sözler yükleniyor…")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.55))
+            }
+        } else if let lyrics = vm.lyrics {
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(lyrics.text)
+                        .font(.system(size: 14))
+                        .foregroundColor(.white.opacity(0.92))
+                        .lineSpacing(4)
+                        .multilineTextAlignment(.leading)
+                    if let src = lyrics.source {
+                        Text(src)
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.45))
+                            .padding(.top, 12)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else if let msg = vm.lyricsError {
+            VStack(alignment: .leading, spacing: 6) {
+                Image(systemName: "text.quote")
+                    .font(.system(size: 22))
+                    .foregroundColor(.white.opacity(0.4))
+                Text(msg)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+        }
+    }
+
+    private var closeButton: some View {
+        Button(action: { vm.toggleNowPlayingFullscreen() }) {
+            Image(systemName: "xmark")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(.white)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Color.black.opacity(0.45)))
+                .overlay(Circle().stroke(Color.white.opacity(0.15), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(.escape, modifiers: [])
+        .help("Kapat (Esc)")
     }
 }
 

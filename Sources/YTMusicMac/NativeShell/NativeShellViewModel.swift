@@ -90,6 +90,17 @@ final class NativeShellViewModel: ObservableObject {
     @Published private(set) var artistDetail: ArtistDetail?
     @Published private(set) var artistLoading: Bool = false
     @Published private(set) var artistError: String?
+
+    /// Now-playing fullscreen overlay state. Owned here so the player bar
+    /// (which toggles it) and the overlay view (which reads lyrics) can
+    /// stay in sync without prop drilling.
+    @Published var isNowPlayingFullscreen: Bool = false
+    @Published private(set) var lyrics: LyricsParser.Lyrics?
+    @Published private(set) var lyricsLoading: Bool = false
+    @Published private(set) var lyricsError: String?
+    /// videoId we last fetched lyrics for, so we don't refetch on
+    /// every onAppear when the same track is still playing.
+    private var lyricsLoadedFor: String?
     @Published private(set) var mainSection: MainSection = .home
 
     @Published private(set) var categoryPlaylists: [PlaylistSummary] = []
@@ -336,6 +347,11 @@ final class NativeShellViewModel: ObservableObject {
         artistDetail = nil
         artistLoading = false
         artistError = nil
+        isNowPlayingFullscreen = false
+        lyrics = nil
+        lyricsLoading = false
+        lyricsError = nil
+        lyricsLoadedFor = nil
         searchQuery = ""
         searchResults = []
         searchLoading = false
@@ -797,6 +813,52 @@ final class NativeShellViewModel: ObservableObject {
             } catch {
                 showToast("Save failed")
             }
+        }
+    }
+
+    func toggleNowPlayingFullscreen() {
+        isNowPlayingFullscreen.toggle()
+        if isNowPlayingFullscreen {
+            loadLyricsForCurrentTrack()
+        }
+    }
+
+    /// Fetch lyrics for whatever's playing right now. Two-hop:
+    /// /next → lyrics browseId → /browse → text. Caches the last
+    /// fetched videoId so re-opening the overlay on the same track
+    /// doesn't re-hit the network.
+    func loadLyricsForCurrentTrack() {
+        let np = MediaController.shared.nowPlaying
+        guard !np.videoId.isEmpty else {
+            lyricsError = "Çalan şarkı yok"
+            lyrics = nil
+            return
+        }
+        if lyricsLoadedFor == np.videoId { return }
+        lyricsLoadedFor = np.videoId
+        Task { await loadLyrics(videoId: np.videoId) }
+    }
+
+    private func loadLyrics(videoId: String) async {
+        lyricsLoading = true
+        defer { lyricsLoading = false }
+        lyrics = nil
+        lyricsError = nil
+        do {
+            let nextData = try await client.next(videoId: videoId)
+            guard let browseId = WatchNextParser.extractLyricsBrowseId(data: nextData) else {
+                lyricsError = "Bu şarkı için sözler yok"
+                return
+            }
+            let lyricsData = try await client.browse(browseId: browseId)
+            guard MediaController.shared.nowPlaying.videoId == videoId else { return }
+            if let parsed = LyricsParser.parse(data: lyricsData) {
+                lyrics = parsed
+            } else {
+                lyricsError = "Sözler bulunamadı"
+            }
+        } catch {
+            lyricsError = "Sözler yüklenemedi"
         }
     }
 
@@ -1273,6 +1335,90 @@ enum HomeParser {
               let runs = text["runs"] as? [[String: Any]]
         else { return nil }
         return runs.first?["text"] as? String
+    }
+}
+
+/// Walks a /next watchNextResponse to find the Lyrics tab's browseId.
+/// Lyrics are accessed via a separate /browse call against that id;
+/// without this hop we can't get the actual text.
+enum WatchNextParser {
+    static func extractLyricsBrowseId(data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        var found: String?
+        walk(json) { dict in
+            guard found == nil,
+                  let tab = dict["tabRenderer"] as? [String: Any],
+                  let title = tabTitle(tab).lowercased() as String?,
+                  title == "lyrics" || title == "şarkı sözleri",
+                  let endpoint = tab["endpoint"] as? [String: Any],
+                  let browse = endpoint["browseEndpoint"] as? [String: Any],
+                  let id = browse["browseId"] as? String
+            else { return }
+            found = id
+        }
+        return found
+    }
+
+    private static func walk(_ node: Any, visit: ([String: Any]) -> Void) {
+        if let dict = node as? [String: Any] {
+            visit(dict)
+            for value in dict.values { walk(value, visit: visit) }
+        } else if let arr = node as? [Any] {
+            for value in arr { walk(value, visit: visit) }
+        }
+    }
+
+    private static func tabTitle(_ tab: [String: Any]) -> String {
+        // Title is either a plain string or a runs-wrapper depending on
+        // which Polymer version YT served us.
+        if let s = tab["title"] as? String { return s }
+        if let wrap = tab["title"] as? [String: Any],
+           let runs = wrap["runs"] as? [[String: Any]] {
+            return runs.compactMap { $0["text"] as? String }.joined()
+        }
+        return ""
+    }
+}
+
+/// Pulls lyric text + attribution out of a /browse <MPLYt…> response.
+/// The body is a sectionList containing exactly one
+/// musicDescriptionShelfRenderer with the text in `description.runs`
+/// and the source/attribution in `footer.runs`.
+enum LyricsParser {
+    struct Lyrics: Equatable {
+        let text: String
+        let source: String?
+    }
+
+    static func parse(data: Data) -> Lyrics? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        var found: Lyrics?
+        walk(json) { dict in
+            guard found == nil,
+                  let shelf = dict["musicDescriptionShelfRenderer"] as? [String: Any]
+            else { return }
+            let text = runsText(shelf["description"])
+            guard !text.isEmpty else { return }
+            let source = runsText(shelf["footer"])
+            found = Lyrics(text: text, source: source.isEmpty ? nil : source)
+        }
+        return found
+    }
+
+    private static func walk(_ node: Any, visit: ([String: Any]) -> Void) {
+        if let dict = node as? [String: Any] {
+            visit(dict)
+            for value in dict.values { walk(value, visit: visit) }
+        } else if let arr = node as? [Any] {
+            for value in arr { walk(value, visit: visit) }
+        }
+    }
+
+    private static func runsText(_ node: Any?) -> String {
+        guard let dict = node as? [String: Any],
+              let runs = dict["runs"] as? [[String: Any]]
+        else { return "" }
+        return runs.compactMap { $0["text"] as? String }.joined()
     }
 }
 

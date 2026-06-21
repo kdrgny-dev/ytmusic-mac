@@ -8,6 +8,7 @@ struct NowPlaying: Equatable {
     var title: String = ""
     var artist: String = ""
     var artworkURL: String = ""
+    var videoId: String = ""
     var duration: Double = 0
     var currentTime: Double = 0
     var isPlaying: Bool = false
@@ -86,6 +87,7 @@ final class MediaController: ObservableObject {
             title: title,
             artist: artist,
             artworkURL: artURL,
+            videoId: info["videoId"] as? String ?? "",
             duration: dur,
             currentTime: cur,
             isPlaying: playing,

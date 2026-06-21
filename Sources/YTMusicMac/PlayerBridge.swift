@@ -413,6 +413,12 @@ enum PlayerBridge {
         } catch (e) { return null; }
       }
 
+      function currentVideoId() {
+        try {
+          var m = location.href.match(/[?&]v=([^&]+)/);
+          return m ? decodeURIComponent(m[1]) : '';
+        } catch (e) { return ''; }
+      }
       function send() {
         try {
           var v = q('video');
@@ -427,6 +433,7 @@ enum PlayerBridge {
             title: titleEl ? titleEl.textContent.trim() : '',
             artist: artistEl ? artistEl.textContent.trim() : '',
             artwork: artEl ? artEl.src : '',
+            videoId: currentVideoId(),
             liked: likeStatus() === 'LIKE',
             disliked: likeStatus() === 'DISLIKE'
           };

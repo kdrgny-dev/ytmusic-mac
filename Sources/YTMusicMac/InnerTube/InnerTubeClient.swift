@@ -44,6 +44,16 @@ actor InnerTubeClient {
         return try await post("browse", body: body)
     }
 
+    /// `/next` — watchNextResponse for a videoId. Contains the queue,
+    /// the lyrics tab pointer, and related tracks. We use it primarily
+    /// to grab the lyrics browseId (see WatchNextParser).
+    func next(videoId: String) async throws -> Data {
+        try await post("next", body: [
+            "context": ["client": clientDict()],
+            "videoId": videoId
+        ])
+    }
+
     /// `/search` — full-text search across YT Music.
     func search(query: String, params: String? = nil) async throws -> Data {
         var body: [String: Any] = [
