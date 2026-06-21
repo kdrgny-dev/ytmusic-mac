@@ -8,6 +8,11 @@ let package = Package(
         .executableTarget(
             name: "YTMusicMac",
             path: "Sources/YTMusicMac"
+        ),
+        .testTarget(
+            name: "YTMusicMacTests",
+            dependencies: ["YTMusicMac"],
+            path: "Tests/YTMusicMacTests"
         )
     ]
 )
