@@ -255,6 +255,50 @@ final class NativeShellViewModel: ObservableObject {
         self.isAuthenticated = auth.isAuthenticated
     }
 
+    /// Test-only setter for the sidebar playlist list. We need this
+    /// because the real path goes through loadPlaylists -> network and
+    /// tests need to inject fixed data deterministically.
+    internal func _testSetPlaylists(_ list: [PlaylistSummary]) {
+        self.playlists = list
+    }
+
+    /// Test-only state reset. Test target sees this via @testable import.
+    /// Production code never calls it.
+    internal func _testReset() {
+        playlists = []
+        selectedPlaylist = nil
+        tracks = []
+        loadingTracks = false
+        tracksError = nil
+        ownQueue = []
+        queue = []
+        queuePlayingIndex = -1
+        mainSection = .home
+        backStack = []
+        forwardStack = []
+        canGoBack = false
+        canGoForward = false
+        homeShelves = []
+        homeLoading = false
+        homeError = nil
+        homeLoaded = false
+        genreSections = []
+        categoryPlaylists = []
+        categoryLoading = false
+        categoryError = nil
+        categoryTitle = ""
+        searchQuery = ""
+        searchResults = []
+        searchLoading = false
+        searchError = nil
+        searchCache.removeAll()
+        searchTab = .playlist
+        isSearchVisible = false
+        isQueueVisible = false
+        toast = nil
+        toastTask?.cancel()
+    }
+
     /// Hit InnerTube for the user's playlists. Safe to call from .onAppear —
     /// re-entrancy is gated so a fast double-call doesn't fire two requests.
     func loadPlaylistsIfNeeded() {
