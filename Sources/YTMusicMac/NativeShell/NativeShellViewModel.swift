@@ -627,6 +627,20 @@ final class NativeShellViewModel: ObservableObject {
                    playNext: playNext)
     }
 
+    /// User pressed Next. If ownQueue has anything, pop the head and
+    /// navigate to it. Returns true if we acted (so the caller skips
+    /// the fall-through to YT's own next-track command).
+    @discardableResult
+    func consumeOwnQueueNext() -> Bool {
+        guard !ownQueue.isEmpty else { return false }
+        let next = ownQueue.removeFirst()
+        let urlStr = "https://music.youtube.com/watch?v=\(next.videoId)"
+        if let url = URL(string: urlStr) {
+            WebViewHolder.shared.webView?.load(URLRequest(url: url))
+        }
+        return true
+    }
+
     /// Called from the JS bridge when the currently-playing video ends.
     /// Pulls the head of ownQueue (if any) and navigates to it.
     ///

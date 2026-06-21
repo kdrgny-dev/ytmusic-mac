@@ -51,6 +51,17 @@ final class MediaController: ObservableObject {
     }
 
     func run(_ cmd: String) {
+        // When the user presses Next in Native Mode and ownQueue has
+        // items, consume from OUR queue first instead of letting YT's
+        // internal queue take over. This is what "Add to queue" promises:
+        // the manually queued tracks play in the order the user picked.
+        if cmd == "next", Preferences.shared.nativeUIMode {
+            if MainActor.assumeIsolated({
+                NativeShellViewModel.shared.consumeOwnQueueNext()
+            }) {
+                return
+            }
+        }
         DispatchQueue.main.async {
             WebViewHolder.shared.webView?.evaluateJavaScript("window.__ytmCmd && window.__ytmCmd('\(cmd)')", completionHandler: nil)
         }
