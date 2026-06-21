@@ -91,10 +91,10 @@ final class NativeShellViewModel: ObservableObject {
     @Published private(set) var artistLoading: Bool = false
     @Published private(set) var artistError: String?
 
-    /// Now-playing fullscreen overlay state. Owned here so the player bar
-    /// (which toggles it) and the overlay view (which reads lyrics) can
-    /// stay in sync without prop drilling.
-    @Published var isNowPlayingFullscreen: Bool = false
+    /// Lyrics side panel — mirrors the queue panel pattern (right side,
+    /// toggleable). Mutually exclusive with isQueueVisible so the right
+    /// column never tries to show both at once.
+    @Published var isLyricsVisible: Bool = false
     @Published private(set) var lyrics: LyricsParser.Lyrics?
     @Published private(set) var lyricsLoading: Bool = false
     @Published private(set) var lyricsError: String?
@@ -347,7 +347,7 @@ final class NativeShellViewModel: ObservableObject {
         artistDetail = nil
         artistLoading = false
         artistError = nil
-        isNowPlayingFullscreen = false
+        isLyricsVisible = false
         lyrics = nil
         lyricsLoading = false
         lyricsError = nil
@@ -523,7 +523,18 @@ final class NativeShellViewModel: ObservableObject {
         WebViewHolder.shared.webView?.evaluateJavaScript(js, completionHandler: nil)
     }
 
-    func toggleQueue() { isQueueVisible.toggle() }
+    func toggleQueue() {
+        isQueueVisible.toggle()
+        if isQueueVisible { isLyricsVisible = false }
+    }
+
+    func toggleLyrics() {
+        isLyricsVisible.toggle()
+        if isLyricsVisible {
+            isQueueVisible = false
+            loadLyricsForCurrentTrack()
+        }
+    }
 
     /// Navigate the (hidden) WebView to a top-level YT Music section.
     /// Used by the sidebar Home / Explore items so the queue context
@@ -813,13 +824,6 @@ final class NativeShellViewModel: ObservableObject {
             } catch {
                 showToast("Save failed")
             }
-        }
-    }
-
-    func toggleNowPlayingFullscreen() {
-        isNowPlayingFullscreen.toggle()
-        if isNowPlayingFullscreen {
-            loadLyricsForCurrentTrack()
         }
     }
 
