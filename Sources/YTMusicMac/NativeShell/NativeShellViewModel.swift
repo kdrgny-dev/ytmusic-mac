@@ -345,14 +345,21 @@ final class NativeShellViewModel: ObservableObject {
             if let url = URL(string: urlStr) {
                 WebViewHolder.shared.webView?.load(URLRequest(url: url))
             }
-        case .playlist:
+        case .playlist, .album:
+            // Albums use the same PlaylistDetail flow — their browse
+            // response is the same track-list shape under the hood. The
+            // view decides whether to label the header "ALBUM" or
+            // "PLAYLIST" from the id prefix.
             let p = PlaylistSummary(id: c.id, title: c.title, thumbnailURL: c.thumbnailURL)
             openPlaylist(p)
-        case .album, .artist:
+        case .artist:
+            // Artist pages are multi-shelf and need their own renderer.
+            // Until then, fall back to the WebView with visible toast.
             let urlStr = "https://music.youtube.com/browse/\(c.id)"
             if let url = URL(string: urlStr) {
                 WebViewHolder.shared.webView?.load(URLRequest(url: url))
             }
+            showToast("\(c.title) — sanatçı sayfası WebView'da")
         }
     }
 
@@ -537,20 +544,18 @@ final class NativeShellViewModel: ObservableObject {
             if let url = URL(string: urlStr) {
                 WebViewHolder.shared.webView?.load(URLRequest(url: url))
             }
-        case .playlist:
-            // Reuse the existing playlist detail flow — drop into a
-            // PlaylistSummary so MainContent shows its tracks.
+        case .playlist, .album:
+            // Album browseIds (MPRE…/OLAK…) work with the same
+            // PlaylistDetail flow — TrackParser handles both.
             let p = PlaylistSummary(id: r.id, title: r.title,
                                     thumbnailURL: r.thumbnailURL)
             openPlaylist(p)
-        case .album, .artist:
-            // Albums browse like playlists (we can load them via /browse),
-            // artists are richer. For v0 just navigate the WebView so the
-            // queue/play context updates; UI catches up next pass.
+        case .artist:
             let urlStr = "https://music.youtube.com/browse/\(r.id)"
             if let url = URL(string: urlStr) {
                 WebViewHolder.shared.webView?.load(URLRequest(url: url))
             }
+            showToast("\(r.title) — sanatçı sayfası WebView'da")
         }
         isSearchVisible = false
         searchQuery = ""

@@ -994,13 +994,25 @@ private struct PlaylistDetailView: View {
         }
     }
 
+    /// Header label for the detail view — derived from the browseId
+    /// prefix so albums get "ALBUM", everything else stays "PLAYLIST".
+    /// MPRE… / OLAK… are YT's album id namespaces.
+    private var kindLabel: String {
+        let id = playlist.id
+        if id.hasPrefix("MPRE") || id.hasPrefix("OLAK") { return "ALBUM" }
+        if id.hasPrefix("VLPL") || id.hasPrefix("VLRDA") { return "PLAYLIST" }
+        return "PLAYLIST"
+    }
+
+    private var isAlbum: Bool { kindLabel == "ALBUM" }
+
     private var header: some View {
         HStack(spacing: 16) {
             cover
                 .frame(width: 96, height: 96)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             VStack(alignment: .leading, spacing: 4) {
-                Text("PLAYLIST")
+                Text(kindLabel)
                     .font(.system(size: 10, weight: .semibold))
                     .tracking(0.8)
                     .foregroundColor(.white.opacity(0.5))
@@ -1015,7 +1027,10 @@ private struct PlaylistDetailView: View {
                 }
             }
             Spacer()
-            saveButton
+            // Save button only makes sense for playlists; albums are
+            // saved via like endpoint with different semantics that we
+            // haven't wired yet.
+            if !isAlbum { saveButton }
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 20)
