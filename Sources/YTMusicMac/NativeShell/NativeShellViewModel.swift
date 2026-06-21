@@ -70,7 +70,26 @@ final class NativeShellViewModel: ObservableObject {
         case home
         case playlist(PlaylistSummary)
         case category(GenreChip)
+        case artist(String)   // browseId; full data lives in artistDetail
     }
+
+    /// Multi-shelf artist page. Built by ArtistParser from a /browse UC…
+    /// response. Reuses HomeCard for album/single carousels and
+    /// TrackSummary for the top-songs list so the views can reuse
+    /// existing rendering.
+    struct ArtistDetail: Equatable {
+        let id: String
+        let name: String
+        let thumbnailURL: String?
+        let subscriberText: String?
+        let topSongs: [TrackSummary]
+        let albums: [HomeCard]
+        let singles: [HomeCard]
+    }
+
+    @Published private(set) var artistDetail: ArtistDetail?
+    @Published private(set) var artistLoading: Bool = false
+    @Published private(set) var artistError: String?
     @Published private(set) var mainSection: MainSection = .home
 
     @Published private(set) var categoryPlaylists: [PlaylistSummary] = []
@@ -131,6 +150,33 @@ final class NativeShellViewModel: ObservableObject {
         case .category(let g):
             categoryTitle = g.title
             Task { await loadCategory(g) }
+        case .artist(let id):
+            Task { await loadArtist(browseId: id, title: artistDetail?.name ?? "") }
+        }
+    }
+
+    /// Open a native artist page. Same history flow as openPlaylist.
+    func openArtist(browseId: String, name: String) {
+        pushHistory()
+        mainSection = .artist(browseId)
+        artistDetail = nil
+        artistError = nil
+        Task { await loadArtist(browseId: browseId, title: name) }
+    }
+
+    private func loadArtist(browseId: String, title: String) async {
+        guard !artistLoading else { return }
+        artistLoading = true
+        defer { artistLoading = false }
+        do {
+            let data = try await client.browse(browseId: browseId)
+            let parsed = ArtistParser.parse(data: data, browseId: browseId)
+            guard case .artist(let curId) = mainSection, curId == browseId else { return }
+            artistDetail = parsed
+            artistError = parsed == nil ? "Couldn't load \(title.isEmpty ? "this artist" : title)." : nil
+        } catch {
+            guard case .artist(let curId) = mainSection, curId == browseId else { return }
+            artistError = "Couldn't load this artist."
         }
     }
 
@@ -287,6 +333,9 @@ final class NativeShellViewModel: ObservableObject {
         categoryLoading = false
         categoryError = nil
         categoryTitle = ""
+        artistDetail = nil
+        artistLoading = false
+        artistError = nil
         searchQuery = ""
         searchResults = []
         searchLoading = false
@@ -397,13 +446,7 @@ final class NativeShellViewModel: ObservableObject {
             let p = PlaylistSummary(id: c.id, title: c.title, thumbnailURL: c.thumbnailURL)
             openPlaylist(p)
         case .artist:
-            // Artist pages are multi-shelf and need their own renderer.
-            // Until then, fall back to the WebView with visible toast.
-            let urlStr = "https://music.youtube.com/browse/\(c.id)"
-            if let url = URL(string: urlStr) {
-                WebViewHolder.shared.webView?.load(URLRequest(url: url))
-            }
-            showToast("\(c.title) — sanatçı sayfası WebView'da")
+            openArtist(browseId: c.id, name: c.title)
         }
     }
 
@@ -595,11 +638,7 @@ final class NativeShellViewModel: ObservableObject {
                                     thumbnailURL: r.thumbnailURL)
             openPlaylist(p)
         case .artist:
-            let urlStr = "https://music.youtube.com/browse/\(r.id)"
-            if let url = URL(string: urlStr) {
-                WebViewHolder.shared.webView?.load(URLRequest(url: url))
-            }
-            showToast("\(r.title) — sanatçı sayfası WebView'da")
+            openArtist(browseId: r.id, name: r.title)
         }
         isSearchVisible = false
         searchQuery = ""
@@ -1196,7 +1235,13 @@ enum HomeParser {
                              hasPlaylistEndpoint: Bool) -> NativeShellViewModel.SearchKind? {
         let label = subtitleFirst?.lowercased() ?? ""
         switch label {
-        case "song", "video", "single", "ep": return .song
+        case "song", "video": return .song
+        case "single", "ep":
+            // Single / EP can be either a single track (with videoId) or
+            // a release (album-like, navigated to via browseEndpoint).
+            // Without a videoId, treat as an album so the click still
+            // routes somewhere meaningful.
+            return hasVideoId ? .song : .album
         case "album": return .album
         case "playlist", "community playlist", "featured playlist": return .playlist
         case "artist", "profile": return .artist
@@ -1228,6 +1273,111 @@ enum HomeParser {
               let runs = text["runs"] as? [[String: Any]]
         else { return nil }
         return runs.first?["text"] as? String
+    }
+}
+
+/// Builds a NativeShellViewModel.ArtistDetail from a /browse UC… response.
+/// The header lives at `header.musicImmersiveHeaderRenderer`. The body
+/// is sectionListRenderer.contents with shelves of two kinds:
+///   - musicShelfRenderer (lists of songs)
+///   - musicCarouselShelfRenderer (cards of albums / singles / related)
+/// Categorisation is by the shelf's header title.
+enum ArtistParser {
+    static func parse(data: Data, browseId: String) -> NativeShellViewModel.ArtistDetail? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+
+        guard let header = (json["header"] as? [String: Any])?["musicImmersiveHeaderRenderer"]
+            as? [String: Any]
+        else { return nil }
+        let name = ((header["title"] as? [String: Any])?["runs"] as? [[String: Any]])?
+            .compactMap { $0["text"] as? String }
+            .joined() ?? ""
+        guard !name.isEmpty else { return nil }
+        let subscriberText: String? = {
+            guard let sub = header["subscriptionButton"] as? [String: Any],
+                  let btn = sub["subscribeButtonRenderer"] as? [String: Any],
+                  let count = btn["subscriberCountText"] as? [String: Any],
+                  let runs = count["runs"] as? [[String: Any]]
+            else { return nil }
+            let joined = runs.compactMap { $0["text"] as? String }.joined()
+            return joined.isEmpty ? nil : joined
+        }()
+        let thumbs = ((header["thumbnail"] as? [String: Any])?["musicThumbnailRenderer"]
+            as? [String: Any]).flatMap {
+                ($0["thumbnail"] as? [String: Any])?["thumbnails"] as? [[String: Any]]
+            }
+        let thumbURL = thumbs?.last?["url"] as? String
+
+        var topSongs: [NativeShellViewModel.TrackSummary] = []
+        var albums: [NativeShellViewModel.HomeCard] = []
+        var singles: [NativeShellViewModel.HomeCard] = []
+        walk(json) { dict in
+            if let songsShelf = dict["musicShelfRenderer"] as? [String: Any] {
+                let title = shelfTitle(in: songsShelf).lowercased()
+                if title.contains("song") {
+                    let data = try? JSONSerialization.data(withJSONObject: songsShelf)
+                    topSongs.append(contentsOf:
+                        data.map { TrackParser.parse(data: $0) } ?? [])
+                }
+            }
+            if let carousel = dict["musicCarouselShelfRenderer"] as? [String: Any] {
+                let title = carouselTitle(in: carousel).lowercased()
+                let cards = extractCards(carousel: carousel)
+                if title.contains("album") {
+                    albums.append(contentsOf: cards)
+                } else if title.contains("single") {
+                    singles.append(contentsOf: cards)
+                }
+            }
+        }
+
+        return .init(id: browseId,
+                     name: name,
+                     thumbnailURL: thumbURL,
+                     subscriberText: subscriberText,
+                     topSongs: topSongs,
+                     albums: albums,
+                     singles: singles)
+    }
+
+    private static func walk(_ node: Any, visit: ([String: Any]) -> Void) {
+        if let dict = node as? [String: Any] {
+            visit(dict)
+            for value in dict.values { walk(value, visit: visit) }
+        } else if let arr = node as? [Any] {
+            for value in arr { walk(value, visit: visit) }
+        }
+    }
+
+    private static func shelfTitle(in shelf: [String: Any]) -> String {
+        ((shelf["title"] as? [String: Any])?["runs"] as? [[String: Any]])?
+            .compactMap { $0["text"] as? String }.joined() ?? ""
+    }
+
+    private static func carouselTitle(in carousel: [String: Any]) -> String {
+        guard let headerWrap = carousel["header"] as? [String: Any],
+              let basic = headerWrap["musicCarouselShelfBasicHeaderRenderer"] as? [String: Any],
+              let titleWrap = basic["title"] as? [String: Any],
+              let runs = titleWrap["runs"] as? [[String: Any]]
+        else { return "" }
+        return runs.compactMap { $0["text"] as? String }.joined()
+    }
+
+    private static func extractCards(carousel: [String: Any]) -> [NativeShellViewModel.HomeCard] {
+        let contents = (carousel["contents"] as? [[String: Any]]) ?? []
+        // Reuse HomeParser's per-card walker by wrapping each item in a
+        // synthetic shelf and re-running it.
+        let shelf: [String: Any] = [
+            "musicCarouselShelfRenderer": [
+                "header": ["musicCarouselShelfBasicHeaderRenderer": [
+                    "title": ["runs": [["text": "x"]]]
+                ]],
+                "contents": contents
+            ]
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: shelf) else { return [] }
+        return HomeParser.parse(data: data).flatMap { $0.items }
     }
 }
 

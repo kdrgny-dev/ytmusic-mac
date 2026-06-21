@@ -426,6 +426,8 @@ private struct MainContent: View {
                 PlaylistDetailView(playlist: p, vm: vm)
             case .category:
                 CategoryView(vm: vm)
+            case .artist:
+                ArtistView(vm: vm)
             case .empty:
                 emptyState
             }
@@ -491,6 +493,129 @@ private struct NavButtons: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .help(help)
+    }
+}
+
+// MARK: - Artist view
+
+private struct ArtistView: View {
+    @ObservedObject var vm: NativeShellViewModel
+    @EnvironmentObject private var media: MediaController
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 24) {
+                if vm.artistLoading && vm.artistDetail == nil {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                } else if let msg = vm.artistError, vm.artistDetail == nil {
+                    Text(msg).foregroundColor(.white.opacity(0.5))
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                } else if let a = vm.artistDetail {
+                    header(a)
+                    if !a.topSongs.isEmpty { topSongs(a) }
+                    if !a.albums.isEmpty {
+                        CarouselSection(
+                            title: "Albümler",
+                            subtitle: nil,
+                            items: a.albums,
+                            pageSize: 3,
+                            estimatedItemWidth: 162
+                        ) { card in
+                            Button(action: { vm.openHomeCard(card) }) {
+                                HomeCardView(card: card)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    if !a.singles.isEmpty {
+                        CarouselSection(
+                            title: "Single'lar",
+                            subtitle: nil,
+                            items: a.singles,
+                            pageSize: 3,
+                            estimatedItemWidth: 162
+                        ) { card in
+                            Button(action: { vm.openHomeCard(card) }) {
+                                HomeCardView(card: card)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    Spacer(minLength: 40)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+        }
+    }
+
+    private func header(_ a: NativeShellViewModel.ArtistDetail) -> some View {
+        HStack(spacing: 18) {
+            Group {
+                if let s = a.thumbnailURL, let url = URL(string: s) {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let img):
+                            img.resizable().aspectRatio(contentMode: .fill)
+                        default:
+                            Color.white.opacity(0.06)
+                        }
+                    }
+                } else {
+                    Color.white.opacity(0.06)
+                }
+            }
+            .frame(width: 160, height: 160)
+            .clipShape(Circle())
+            VStack(alignment: .leading, spacing: 6) {
+                Text("SANATÇI")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundColor(.white.opacity(0.55))
+                Text(a.name)
+                    .font(.system(size: 36, weight: .heavy))
+                    .foregroundColor(.white)
+                    .lineLimit(2)
+                if let s = a.subscriberText {
+                    Text(s)
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.55))
+                }
+            }
+            Spacer()
+        }
+    }
+
+    private func topSongs(_ a: NativeShellViewModel.ArtistDetail) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Popüler şarkılar")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.white)
+            VStack(spacing: 0) {
+                ForEach(Array(a.topSongs.prefix(10).enumerated()), id: \.element.id) { idx, track in
+                    Button(action: {
+                        // Convert HomeCard-style click → play this song
+                        let card = NativeShellViewModel.HomeCard(
+                            id: track.id, kind: .song,
+                            title: track.title, subtitle: track.artist,
+                            thumbnailURL: track.thumbnailURL,
+                            playlistId: nil)
+                        vm.openHomeCard(card)
+                    }) {
+                        TrackRow(index: idx + 1, track: track,
+                                 isPlaying: isCurrentTrack(track),
+                                 zebra: idx.isMultiple(of: 2))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func isCurrentTrack(_ t: NativeShellViewModel.TrackSummary) -> Bool {
+        let np = media.nowPlaying
+        return np.hasTrack && np.title.caseInsensitiveCompare(t.title) == .orderedSame
     }
 }
 
