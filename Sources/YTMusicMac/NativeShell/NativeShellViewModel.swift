@@ -629,7 +629,14 @@ final class NativeShellViewModel: ObservableObject {
 
     /// Called from the JS bridge when the currently-playing video ends.
     /// Pulls the head of ownQueue (if any) and navigates to it.
+    ///
+    /// Guard: only act if something was actually playing in YT's player
+    /// (hasTrack == true). The JS-side filter on duration / currentTime
+    /// catches src-clear spurious ends, but this is the second line of
+    /// defense — and if MediaController says we never had a track, then
+    /// there's nothing to chain.
     func handleTrackEnded() {
+        guard MediaController.shared.nowPlaying.hasTrack else { return }
         guard !ownQueue.isEmpty else { return }
         let next = ownQueue.removeFirst()
         let urlStr = "https://music.youtube.com/watch?v=\(next.videoId)"

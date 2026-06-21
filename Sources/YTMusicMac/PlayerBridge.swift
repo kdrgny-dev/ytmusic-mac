@@ -452,8 +452,13 @@ enum PlayerBridge {
         });
         // Distinct 'ended' notification for own-queue chaining — separate
         // from the player-state poll so native can react in one hop.
+        // Filter spurious 'ended' events: YT clears video.src during
+        // its own track changes which fires 'ended' at currentTime=0,
+        // and that was making our ownQueue jump in unexpectedly.
         v.addEventListener('ended', function() {
           try {
+            if (!v.duration || !isFinite(v.duration)) return;
+            if (v.currentTime < v.duration - 1.5) return;
             window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'ended' });
           } catch (e) {}
         });
