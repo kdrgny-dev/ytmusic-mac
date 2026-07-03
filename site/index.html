@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>YTMusic for macOS — a native YouTube Music app</title>
+<meta name="description" content="A fast, native macOS app for YouTube Music. Media keys, Now Playing, mini player, lyrics, a full native UI, themes, crossfade and sleep timer — in a 5 MB app instead of a 500 MB browser tab. Free & open source." />
+<link rel="icon" href="assets/icon.png" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="YTMusic for macOS" />
+<meta property="og:description" content="A fast, native macOS app for YouTube Music — media keys, Now Playing, mini player, lyrics, native UI, themes. Free & open source." />
+<meta property="og:image" content="screenshots/shot-home.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="theme-color" content="#09090b" />
+<style>
+  :root{
+    --bg:#09090b;
+    --bg-soft:#101013;
+    --card:#141417;
+    --card-2:#17171b;
+    --line:rgba(255,255,255,.08);
+    --line-2:rgba(255,255,255,.14);
+    --text:#f4f4f6;
+    --muted:#a1a1aa;
+    --muted-2:#71717a;
+    --red:#ff2d55;
+    --red-2:#ff0033;
+    --amber:#ff7a45;
+    --radius:20px;
+    --maxw:1180px;
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font);
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    overflow-x:hidden;
+  }
+  a{color:inherit;text-decoration:none}
+  img{max-width:100%;display:block}
+  ::selection{background:rgba(255,45,85,.32)}
+
+  /* ---------- ambient background ---------- */
+  .ambient{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+  .blob{position:absolute;border-radius:50%;filter:blur(90px);opacity:.55;mix-blend-mode:screen}
+  .blob.b1{width:640px;height:640px;top:-180px;left:-140px;background:radial-gradient(circle at 30% 30%,#ff2d55,transparent 62%);animation:drift1 26s ease-in-out infinite}
+  .blob.b2{width:560px;height:560px;top:-120px;right:-120px;background:radial-gradient(circle at 60% 40%,#ff7a45,transparent 60%);opacity:.4;animation:drift2 32s ease-in-out infinite}
+  .blob.b3{width:720px;height:720px;top:820px;left:40%;background:radial-gradient(circle at 50% 50%,#7c3aed,transparent 64%);opacity:.28;animation:drift3 38s ease-in-out infinite}
+  .grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.035;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  @keyframes drift1{50%{transform:translate(120px,80px) scale(1.12)}}
+  @keyframes drift2{50%{transform:translate(-90px,120px) scale(1.08)}}
+  @keyframes drift3{50%{transform:translate(-140px,-70px) scale(1.14)}}
+
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px;position:relative;z-index:2}
+
+  /* ---------- nav ---------- */
+  nav{position:fixed;top:0;left:0;right:0;z-index:50;transition:background .3s ease,border-color .3s ease,backdrop-filter .3s}
+  nav.scrolled{background:rgba(9,9,11,.72);backdrop-filter:saturate(160%) blur(16px);border-bottom:1px solid var(--line)}
+  .nav-in{max-width:var(--maxw);margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:14px}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:650;letter-spacing:-.01em}
+  .brand img{width:30px;height:30px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+  .nav-links{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .nav-links a{padding:8px 14px;border-radius:10px;color:var(--muted);font-size:14.5px;font-weight:500;transition:color .2s,background .2s}
+  .nav-links a:hover{color:var(--text);background:rgba(255,255,255,.06)}
+  .nav-links a.cta{color:#fff;background:linear-gradient(180deg,var(--red),var(--red-2));box-shadow:0 6px 20px rgba(255,45,85,.32)}
+  .nav-links a.cta:hover{filter:brightness(1.08)}
+  .nav-ghost{display:none}
+  @media(max-width:720px){.nav-links a.hide-sm{display:none}}
+
+  /* ---------- hero ---------- */
+  header{position:relative;padding:150px 0 40px;text-align:center}
+  .badge{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border:1px solid var(--line-2);border-radius:999px;font-size:13px;color:var(--muted);background:rgba(255,255,255,.03);margin-bottom:26px}
+  .badge .dot{width:7px;height:7px;border-radius:50%;background:var(--red);box-shadow:0 0 10px var(--red)}
+  h1{font-size:clamp(38px,7vw,74px);line-height:1.02;letter-spacing:-.035em;font-weight:720;margin-bottom:22px}
+  h1 .grad{background:linear-gradient(120deg,#fff 20%,#ffb4c1 55%,#ff7a45 90%);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{font-size:clamp(17px,2.4vw,21px);color:var(--muted);max-width:640px;margin:0 auto 34px;line-height:1.55}
+  .cta-row{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:14px}
+  .btn{display:inline-flex;align-items:center;gap:10px;padding:15px 26px;border-radius:14px;font-weight:600;font-size:16px;transition:transform .15s ease,filter .2s,background .2s,border-color .2s;border:1px solid transparent}
+  .btn:active{transform:translateY(1px)}
+  .btn.primary{color:#fff;background:linear-gradient(180deg,#ff3860,var(--red-2));box-shadow:0 10px 34px rgba(255,45,85,.4),inset 0 1px 0 rgba(255,255,255,.22)}
+  .btn.primary:hover{filter:brightness(1.07)}
+  .btn.ghost{color:var(--text);background:rgba(255,255,255,.05);border-color:var(--line-2)}
+  .btn.ghost:hover{background:rgba(255,255,255,.09)}
+  .meta-line{color:var(--muted-2);font-size:13.5px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;align-items:center}
+  .meta-line svg{vertical-align:-2px}
+  .sep{opacity:.4}
+
+  .hero-shot{margin:56px auto 0;max-width:1080px;position:relative}
+  .hero-shot .glow{position:absolute;inset:-6% 8% 20%;background:radial-gradient(60% 60% at 50% 40%,rgba(255,45,85,.4),transparent 70%);filter:blur(60px);z-index:-1}
+  .frame{border-radius:14px;overflow:hidden;border:1px solid var(--line-2);box-shadow:0 40px 120px -30px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.04);background:#000}
+  .frame img{width:100%}
+
+  /* ---------- section shell ---------- */
+  section{position:relative;padding:96px 0}
+  .eyebrow{display:block;text-align:center;color:var(--red);font-weight:650;font-size:13px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:14px}
+  .h2{text-align:center;font-size:clamp(28px,4.4vw,44px);letter-spacing:-.03em;font-weight:680;margin-bottom:16px}
+  .lead{text-align:center;color:var(--muted);max-width:620px;margin:0 auto 54px;font-size:17px}
+
+  /* ---------- stats ---------- */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:26px 22px;text-align:center}
+  .stat .n{font-size:clamp(26px,3.4vw,38px);font-weight:720;letter-spacing:-.02em;background:linear-gradient(120deg,#fff,#ff9db0);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .stat .l{color:var(--muted);font-size:14px;margin-top:6px}
+  @media(max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}}
+
+  /* ---------- features ---------- */
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  @media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:600px){.grid{grid-template-columns:1fr}}
+  .feat{background:linear-gradient(180deg,var(--card),var(--bg-soft));border:1px solid var(--line);border-radius:var(--radius);padding:26px;transition:transform .25s ease,border-color .25s,background .25s}
+  .feat:hover{transform:translateY(-4px);border-color:var(--line-2);background:linear-gradient(180deg,var(--card-2),var(--bg-soft))}
+  .feat .ic{width:46px;height:46px;border-radius:12px;display:grid;place-items:center;margin-bottom:16px;background:radial-gradient(120% 120% at 30% 20%,rgba(255,45,85,.28),rgba(255,122,69,.12));border:1px solid rgba(255,45,85,.28);color:#ff9db0}
+  .feat h3{font-size:17.5px;font-weight:630;letter-spacing:-.01em;margin-bottom:7px}
+  .feat p{color:var(--muted);font-size:14.5px;line-height:1.55}
+
+  /* ---------- showcase rows ---------- */
+  .show{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center;margin-bottom:110px}
+  .show:last-child{margin-bottom:0}
+  .show.flip .txt{order:2}
+  .show .txt .tag{color:var(--red);font-weight:600;font-size:13px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px;display:block}
+  .show .txt h3{font-size:clamp(24px,3.2vw,33px);letter-spacing:-.025em;font-weight:670;margin-bottom:16px;line-height:1.12}
+  .show .txt p{color:var(--muted);font-size:16.5px;line-height:1.6;margin-bottom:18px}
+  .show ul{list-style:none;display:flex;flex-direction:column;gap:10px}
+  .show ul li{display:flex;gap:11px;align-items:flex-start;color:var(--muted);font-size:15px}
+  .show ul li svg{flex:0 0 auto;margin-top:3px;color:var(--red)}
+  .show .shot{border-radius:14px;overflow:hidden;border:1px solid var(--line-2);box-shadow:0 30px 80px -28px rgba(0,0,0,.85);position:relative}
+  .show .shot::after{content:"";position:absolute;inset:0;border-radius:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+  @media(max-width:840px){.show{grid-template-columns:1fr;gap:30px;margin-bottom:72px}.show.flip .txt{order:0}}
+
+  .mini-wrap{margin-top:22px;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#0d0d0f;box-shadow:0 20px 50px -24px rgba(0,0,0,.8)}
+
+  /* ---------- shortcuts ---------- */
+  .keys{max-width:760px;margin:0 auto;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;background:var(--card)}
+  .keys .row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:15px 22px;border-bottom:1px solid var(--line)}
+  .keys .row:last-child{border-bottom:none}
+  .keys .row:nth-child(odd){background:rgba(255,255,255,.015)}
+  .keys .act{color:var(--muted);font-size:15px}
+  .kbd{display:inline-flex;gap:5px}
+  .kbd kbd{font-family:var(--font);font-size:12.5px;font-weight:600;color:var(--text);background:linear-gradient(180deg,#26262b,#1a1a1e);border:1px solid var(--line-2);border-bottom-width:2px;border-radius:7px;padding:5px 9px;min-width:26px;text-align:center;box-shadow:0 1px 0 rgba(0,0,0,.4)}
+
+  /* ---------- install / download ---------- */
+  .dl{position:relative;text-align:center;background:linear-gradient(180deg,rgba(255,45,85,.09),rgba(255,45,85,0));border:1px solid var(--line);border-radius:28px;padding:64px 28px;overflow:hidden}
+  .dl .dlglow{position:absolute;inset:auto 0 -40% 0;height:60%;background:radial-gradient(50% 100% at 50% 100%,rgba(255,45,85,.35),transparent 70%);filter:blur(40px);pointer-events:none}
+  .dl img.appicon{width:96px;height:96px;border-radius:22px;margin:0 auto 22px;box-shadow:0 18px 44px rgba(0,0,0,.55)}
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:820px;margin:44px auto 0;text-align:left}
+  @media(max-width:720px){.steps{grid-template-columns:1fr}}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}
+  .step .num{width:28px;height:28px;border-radius:8px;background:rgba(255,45,85,.16);border:1px solid rgba(255,45,85,.3);color:#ff9db0;font-weight:700;font-size:14px;display:grid;place-items:center;margin-bottom:12px}
+  .step h4{font-size:15.5px;font-weight:620;margin-bottom:6px}
+  .step p{color:var(--muted);font-size:14px;line-height:1.5}
+  .step code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:#000;border:1px solid var(--line);border-radius:6px;padding:2px 6px;color:#ffb4c1;display:inline-block;margin-top:6px;word-break:break-all}
+  .note{margin-top:26px;color:var(--muted-2);font-size:13.5px;max-width:640px;margin-left:auto;margin-right:auto}
+
+  /* ---------- footer ---------- */
+  footer{border-top:1px solid var(--line);padding:56px 0 70px;margin-top:40px}
+  .foot{display:flex;justify-content:space-between;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .foot .brand-lg{display:flex;align-items:center;gap:12px}
+  .foot .brand-lg img{width:40px;height:40px;border-radius:10px}
+  .foot p{color:var(--muted-2);font-size:13.5px;max-width:420px;margin-top:12px;line-height:1.6}
+  .foot .links{display:flex;flex-direction:column;gap:10px}
+  .foot .links a{color:var(--muted);font-size:14.5px;transition:color .2s}
+  .foot .links a:hover{color:var(--text)}
+  .disclaimer{margin-top:36px;color:var(--muted-2);font-size:12.5px;line-height:1.6;border-top:1px solid var(--line);padding-top:24px}
+
+  /* ---------- reveal ---------- */
+  .reveal{opacity:0;transform:translateY(26px);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
+  .reveal.in{opacity:1;transform:none}
+  .reveal.d1{transition-delay:.06s}.reveal.d2{transition-delay:.12s}.reveal.d3{transition-delay:.18s}
+  .reveal.d4{transition-delay:.24s}.reveal.d5{transition-delay:.3s}.reveal.d6{transition-delay:.36s}
+
+  @media(prefers-reduced-motion:reduce){
+    *{animation:none!important}
+    .reveal{opacity:1;transform:none;transition:none}
+    html{scroll-behavior:auto}
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient" aria-hidden="true">
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+</div>
+<div class="grain" aria-hidden="true"></div>
+
+<nav id="nav">
+  <div class="nav-in">
+    <a class="brand" href="#top"><img src="assets/icon.png" alt="" /> YTMusic</a>
+    <div class="nav-links">
+      <a href="#features" class="hide-sm">Features</a>
+      <a href="#screens" class="hide-sm">Screenshots</a>
+      <a href="#shortcuts" class="hide-sm">Shortcuts</a>
+      <a href="https://github.com/kdrgny-dev/ytmusic-mac" class="hide-sm">GitHub</a>
+      <a href="#download" class="cta">Download</a>
+    </div>
+  </div>
+</nav>
+
+<header id="top">
+  <div class="wrap">
+    <div class="badge reveal"><span class="dot"></span> Native macOS app · not a browser tab</div>
+    <h1 class="reveal d1">YouTube Music,<br><span class="grad">the way macOS deserves.</span></h1>
+    <p class="sub reveal d2">A fast, native shell around YouTube Music with all the OS integrations Google never shipped — media keys, Now&nbsp;Playing, a mini player, lyrics, a full native UI, themes and crossfade. In a 5&nbsp;MB app instead of a 500&nbsp;MB browser tab.</p>
+    <div class="cta-row reveal d3">
+      <a class="btn primary" href="YTMusic.dmg" download>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Download for macOS
+      </a>
+      <a class="btn ghost" href="https://github.com/kdrgny-dev/ytmusic-mac">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49v-1.7c-2.78.62-3.37-1.22-3.37-1.22-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.36 1.12 2.94.86.09-.67.35-1.12.63-1.38-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.4 9.4 0 015 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9v2.82c0 .27.18.6.69.49A10.26 10.26 0 0022 12.25C22 6.58 17.52 2 12 2z"/></svg>
+        View source
+      </a>
+    </div>
+    <div class="meta-line reveal d4">
+      <span>macOS 13 Ventura or newer</span><span class="sep">·</span>
+      <span>Apple Silicon &amp; Intel</span><span class="sep">·</span>
+      <span>Free &amp; open source (MIT)</span>
+    </div>
+
+    <div class="hero-shot reveal d3">
+      <div class="glow"></div>
+      <div class="frame"><img src="screenshots/shot-home.png" alt="YTMusic native home view with recommendation carousels" fetchpriority="high" /></div>
+    </div>
+  </div>
+</header>
+
+<!-- STATS -->
+<section style="padding-top:60px">
+  <div class="wrap">
+    <div class="stats">
+      <div class="stat reveal"><div class="n">~5 MB</div><div class="l">App size on disk</div></div>
+      <div class="stat reveal d1"><div class="n">&lt;100 MB</div><div class="l">Typical memory use</div></div>
+      <div class="stat reveal d2"><div class="n">0</div><div class="l">Electron / Chromium bundled</div></div>
+      <div class="stat reveal d3"><div class="n">100%</div><div class="l">Open source, MIT</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="wrap">
+    <span class="eyebrow reveal">Everything a desktop app should do</span>
+    <h2 class="h2 reveal">Built for macOS, not bolted on</h2>
+    <p class="lead reveal">YouTube Music has no desktop app on any platform. This one adds the native integrations you actually miss — and stays out of your way.</p>
+    <div class="grid">
+      <div class="feat reveal"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M9 18V5l12-2v13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="18" r="3" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="16" r="3" stroke="currentColor" stroke-width="1.8"/></svg></div>
+        <h3>Media keys &amp; Now Playing</h3><p>F7/F8/F9, AirPods double-tap, Control Center and the lock screen all control playback — with live artwork — even when the app is in the background.</p></div>
+
+      <div class="feat reveal d1"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 20h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+        <h3>Full native UI mode</h3><p>An optional SwiftUI shell over the web player: sidebar, home, playlists, albums, artist pages, search and a native now-playing screen — the web chrome gone entirely.</p></div>
+
+      <div class="feat reveal d2"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="4" y="8" width="16" height="9" rx="2.5" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="12.5" r="1.4" fill="currentColor"/><path d="M12 11.5h5M12 14h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+        <h3>Floating mini player</h3><p>An always-on-top, resizable window with artwork, title, like/dislike and transport controls. Tuck it in a corner while you work.</p></div>
+
+      <div class="feat reveal"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 6h10M4 12h16M4 18h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+        <h3>Lyrics, side-by-side</h3><p>Time-synced lyrics pulled straight through YouTube Music, shown in the native now-playing screen or a slide-out panel next to the queue.</p></div>
+
+      <div class="feat reveal d1"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+        <h3>Sleep timer</h3><p>Fade out and pause after 5, 15, 30 or 60 minutes — or at the end of the current track. Perfect for falling asleep to a playlist.</p></div>
+
+      <div class="feat reveal d2"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 12c3 0 3-6 6-6s3 12 6 12 3-6 6-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+        <h3>Crossfade</h3><p>Smoothly fade the tail of one track into the head of the next, with an adjustable duration — so playlists flow without a gap of silence.</p></div>
+
+      <div class="feat reveal"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 3.5v17M3.5 12h17" stroke="currentColor" stroke-width="1.4" opacity=".5"/></svg></div>
+        <h3>Themes</h3><p>Swap the whole app between hand-tuned color themes, light and dark — the native shell and player restyle instantly to match.</p></div>
+
+      <div class="feat reveal d1"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="4" stroke="currentColor" stroke-width="1.8"/><path d="M9 9h6v6H9z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></div>
+        <h3>Global hotkeys &amp; menu bar</h3><p>Jump to search or the mini player from anywhere, and glance at what's playing from a menu-bar item — with transport controls in the dropdown.</p></div>
+
+      <div class="feat reveal d2"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="19" cy="17" r="2.5" stroke="currentColor" stroke-width="1.8"/></svg></div>
+        <h3>A queue that obeys you</h3><p>“Add to queue” and “Play next” actually work — a real ordered queue on top of YouTube Music, plus optional always-shuffle and track-change notifications.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- SCREENSHOTS -->
+<section id="screens" style="background:linear-gradient(180deg,transparent,rgba(255,255,255,.015),transparent)">
+  <div class="wrap">
+    <span class="eyebrow reveal">A closer look</span>
+    <h2 class="h2 reveal">Real screens, real polish</h2>
+    <p class="lead reveal">Every pixel is native SwiftUI over the YouTube Music engine — so your library, recommendations and playback stay exactly as you know them.</p>
+
+    <div class="show reveal">
+      <div class="txt">
+        <span class="tag">Home</span>
+        <h3>Your recommendations, natively laid out</h3>
+        <p>Listen-again rows, mixes and today’s hits in a clean, fast native grid — no web page reflow, no wasted chrome.</p>
+        <ul>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Instant, smooth-scrolling carousels</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Hover-to-play on any card</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Sidebar with all your playlists</li>
+        </ul>
+      </div>
+      <div class="shot"><img src="screenshots/shot-home.png" alt="Native home view" loading="lazy" /></div>
+    </div>
+
+    <div class="show flip reveal">
+      <div class="txt">
+        <span class="tag">Playlists &amp; albums</span>
+        <h3>Big libraries, handled with ease</h3>
+        <p>A Spotify-style detail view with a sortable, searchable track list — comfortable even at a thousand tracks. Play, shuffle or queue the whole thing in a click.</p>
+        <ul>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> In-list search &amp; column sort</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Right-click to like, queue or save</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Cached artwork, no re-flicker</li>
+        </ul>
+      </div>
+      <div class="shot"><img src="screenshots/shot-01.png" alt="Playlist detail view" loading="lazy" /></div>
+    </div>
+
+    <div class="show reveal">
+      <div class="txt">
+        <span class="tag">Now Playing</span>
+        <h3>A now-playing screen that sets the mood</h3>
+        <p>Full-bleed album art with an ambient glow drawn from the cover, a big scrubber and all your transport controls — with lyrics one tap away.</p>
+        <ul>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Ambient color from the artwork</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Switch to the music video (clip) inline</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Volume, shuffle &amp; repeat at hand</li>
+        </ul>
+      </div>
+      <div class="shot"><img src="screenshots/shot-nowplaying.png" alt="Now Playing fullscreen" loading="lazy" /></div>
+    </div>
+
+    <div class="show flip reveal">
+      <div class="txt">
+        <span class="tag">Lyrics</span>
+        <h3>Sing along, right there</h3>
+        <p>Lyrics fetched straight through YouTube Music, laid out beside the artwork so you never leave the now-playing view.</p>
+        <ul>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Clean, readable typography</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Toggle on/off instantly</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Works alongside the queue panel</li>
+        </ul>
+      </div>
+      <div class="shot"><img src="screenshots/shot-lyrics.png" alt="Now Playing with lyrics panel" loading="lazy" /></div>
+    </div>
+
+    <div class="reveal" style="text-align:center;margin-top:8px">
+      <span class="tag" style="color:var(--red);font-weight:600;font-size:13px;letter-spacing:.1em;text-transform:uppercase">Mini player</span>
+      <h3 style="font-size:clamp(22px,3vw,30px);letter-spacing:-.02em;font-weight:660;margin:12px 0 6px">Keep playing, take up nothing</h3>
+      <p style="color:var(--muted);max-width:560px;margin:0 auto">A compact, always-on-top window for when the full app is overkill.</p>
+      <div class="mini-wrap" style="max-width:660px;margin-left:auto;margin-right:auto"><img src="screenshots/shot-mini.png" alt="Floating mini player" loading="lazy" /></div>
+    </div>
+  </div>
+</section>
+
+<!-- SHORTCUTS -->
+<section id="shortcuts">
+  <div class="wrap">
+    <span class="eyebrow reveal">Muscle memory</span>
+    <h2 class="h2 reveal">Keyboard-first</h2>
+    <p class="lead reveal">Drive the whole thing without touching the mouse.</p>
+    <div class="keys reveal d1">
+      <div class="row"><span class="act">Play / pause</span><span class="kbd"><kbd>Space</kbd></span></div>
+      <div class="row"><span class="act">Seek back / forward 5s</span><span class="kbd"><kbd>←</kbd><kbd>→</kbd></span></div>
+      <div class="row"><span class="act">Next / previous track</span><span class="kbd"><kbd>⌘</kbd><kbd>→</kbd><kbd>⌘</kbd><kbd>←</kbd></span></div>
+      <div class="row"><span class="act">Focus search</span><span class="kbd"><kbd>⌘</kbd><kbd>K</kbd></span></div>
+      <div class="row"><span class="act">Show mini player</span><span class="kbd"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>M</kbd></span></div>
+      <div class="row"><span class="act">Global: focus search (from any app)</span><span class="kbd"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>K</kbd></span></div>
+      <div class="row"><span class="act">Global: toggle mini player</span><span class="kbd"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>M</kbd></span></div>
+      <div class="row"><span class="act">Settings</span><span class="kbd"><kbd>⌘</kbd><kbd>,</kbd></span></div>
+    </div>
+  </div>
+</section>
+
+<!-- DOWNLOAD -->
+<section id="download">
+  <div class="wrap">
+    <div class="dl reveal">
+      <div class="dlglow"></div>
+      <img class="appicon" src="assets/icon.png" alt="YTMusic app icon" />
+      <span class="eyebrow" style="margin-bottom:10px">Get it now</span>
+      <h2 class="h2" style="margin-bottom:14px">Download YTMusic</h2>
+      <p class="lead" style="margin-bottom:30px">Free, open source, ~2&nbsp;MB download. macOS 13 or newer, Apple&nbsp;Silicon &amp; Intel.</p>
+      <div class="cta-row">
+        <a class="btn primary" href="YTMusic.dmg" download>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Download .dmg
+        </a>
+        <a class="btn ghost" href="https://github.com/kdrgny-dev/ytmusic-mac">View on GitHub</a>
+      </div>
+
+      <div class="steps">
+        <div class="step"><div class="num">1</div><h4>Open the .dmg</h4><p>Drag <strong>YTMusic</strong> into your Applications folder.</p></div>
+        <div class="step"><div class="num">2</div><h4>First launch</h4><p>It isn’t notarized yet, so right-click the app and choose <strong>Open</strong> to get past Gatekeeper once.</p></div>
+        <div class="step"><div class="num">3</div><h4>Sign in</h4><p>Log in with your Google <strong>password</strong> (passkeys need a browser entitlement). It stays logged in after that.</p></div>
+      </div>
+      <p class="note">Prefer to build it yourself? <code>git clone</code> the repo and run <code>./build.sh</code> — it takes about a minute and needs only the Xcode Command Line Tools.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div>
+        <div class="brand-lg"><img src="assets/icon.png" alt="" /><span style="font-weight:650;font-size:19px">YTMusic for macOS</span></div>
+        <p>A thin, native shell around music.youtube.com that adds the desktop integrations Google never shipped. Free and open source under the MIT license.</p>
+      </div>
+      <div class="links">
+        <a href="https://github.com/kdrgny-dev/ytmusic-mac">GitHub repository</a>
+        <a href="YTMusic.dmg" download>Download .dmg</a>
+        <a href="https://github.com/kdrgny-dev/ytmusic-mac/blob/main/LICENSE">MIT license</a>
+        <a href="https://github.com/kdrgny-dev/ytmusic-mac/issues">Report an issue</a>
+      </div>
+    </div>
+    <p class="disclaimer">Not affiliated with, endorsed by, or sponsored by Google or YouTube. “YouTube Music” is a trademark of Google LLC. This is an unofficial, open-source client that loads the public web player — it doesn’t reverse-engineer any private APIs. You’ll need your own YouTube Music account.</p>
+  </div>
+</footer>
+
+<script>
+  // nav background on scroll
+  var nav=document.getElementById('nav');
+  var onScroll=function(){nav.classList.toggle('scrolled',window.scrollY>12)};
+  onScroll();addEventListener('scroll',onScroll,{passive:true});
+
+  // scroll reveal
+  var els=document.querySelectorAll('.reveal');
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(entries){
+      entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}});
+    },{threshold:.12,rootMargin:'0px 0px -8% 0px'});
+    els.forEach(function(el){io.observe(el)});
+  }else{els.forEach(function(el){el.classList.add('in')})}
+
+  // subtle hero parallax
+  var hero=document.querySelector('.hero-shot');
+  if(hero&&!matchMedia('(prefers-reduced-motion:reduce)').matches){
+    addEventListener('scroll',function(){
+      var y=Math.min(window.scrollY,600);
+      hero.style.transform='translateY('+(y*0.04)+'px) scale('+(1-y*0.00004)+')';
+    },{passive:true});
+  }
+</script>
+</body>
+</html>
