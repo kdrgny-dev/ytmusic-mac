@@ -4,17 +4,29 @@ import AppKit
 import Combine
 import UserNotifications
 
+/// Playback position lives on its OWN observable, separate from `NowPlaying`,
+/// so the ~per-second time tick doesn't invalidate every view bound to
+/// `MediaController` (an `@Published` fires object-level `objectWillChange`,
+/// which would re-run e.g. the big playlist's filter+sort every tick). Only
+/// the scrubber observes this clock.
+final class PlaybackClock: ObservableObject {
+    static let shared = PlaybackClock()
+    @Published var time: Double = 0
+}
+
 struct NowPlaying: Equatable {
     var title: String = ""
     var artist: String = ""
     var artworkURL: String = ""
     var videoId: String = ""
     var duration: Double = 0
-    var currentTime: Double = 0
     var isPlaying: Bool = false
     var volume: Double = 1
     var liked: Bool = false
     var disliked: Bool = false
+    var shuffle: Bool = false
+    var repeatMode: String = "NONE" // NONE | ALL | ONE
+    var hasVideo: Bool = false      // a music-video counterpart is available
 
     var hasTrack: Bool { !title.isEmpty }
     var trackKey: String { "\(title)|\(artist)" }
@@ -30,7 +42,23 @@ final class MediaController: ObservableObject {
     /// expose a passthrough here to keep existing call sites happy.
     var notifyOnTrackChange: Bool { Preferences.shared.notifyOnTrackChange }
 
-    private var artworkCache: [String: NSImage] = [:]
+    /// Artwork cache. Was a plain `[String: NSImage]` that only ever GREW —
+    /// every track's cover stayed forever, so a long session leaked hundreds
+    /// of MB. NSCache is bounded (auto-evicts under memory pressure) AND
+    /// thread-safe, so it also removes the manual lock the dictionary needed.
+    private let artworkCache: NSCache<NSString, NSImage> = {
+        let c = NSCache<NSString, NSImage>()
+        c.countLimit = 80
+        c.totalCostLimit = 32 * 1024 * 1024 // ~32 MB of decoded covers
+        return c
+    }()
+    private func cachedArtwork(_ url: String) -> NSImage? {
+        artworkCache.object(forKey: url as NSString)
+    }
+    private func cacheArtwork(_ image: NSImage, for url: String) {
+        let cost = Int(image.size.width * image.size.height * 4)
+        artworkCache.setObject(image, forKey: url as NSString, cost: cost)
+    }
     private var lastArtworkURL: String = ""
     private var lastNotifiedTrackKey: String = ""
 
@@ -56,12 +84,18 @@ final class MediaController: ObservableObject {
         // items, consume from OUR queue first instead of letting YT's
         // internal queue take over. This is what "Add to queue" promises:
         // the manually queued tracks play in the order the user picked.
+        // MPRemoteCommandCenter does not guarantee the handler fires on the
+        // main thread, so we must NOT touch the @MainActor view model here
+        // directly — `assumeIsolated` would hard-trap off-main. Hop to main
+        // first, then it's safe to consume ownQueue / drive the WebView.
         if cmd == "next", Preferences.shared.nativeUIMode {
-            if MainActor.assumeIsolated({
-                NativeShellViewModel.shared.consumeOwnQueueNext()
-            }) {
-                return
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if NativeShellViewModel.shared.consumeOwnQueueNext() { return }
+                    WebViewHolder.shared.webView?.evaluateJavaScript("window.__ytmCmd && window.__ytmCmd('next')", completionHandler: nil)
+                }
             }
+            return
         }
         DispatchQueue.main.async {
             WebViewHolder.shared.webView?.evaluateJavaScript("window.__ytmCmd && window.__ytmCmd('\(cmd)')", completionHandler: nil)
@@ -89,23 +123,29 @@ final class MediaController: ObservableObject {
             artworkURL: artURL,
             videoId: info["videoId"] as? String ?? "",
             duration: dur,
-            currentTime: cur,
             isPlaying: playing,
             volume: info["volume"] as? Double ?? 1,
             liked: info["liked"] as? Bool ?? false,
-            disliked: info["disliked"] as? Bool ?? false
+            disliked: info["disliked"] as? Bool ?? false,
+            shuffle: info["shuffle"] as? Bool ?? false,
+            repeatMode: info["repeatMode"] as? String ?? "NONE",
+            hasVideo: info["hasVideo"] as? Bool ?? false
         )
 
         let trackChanged = newState.hasTrack && newState.trackKey != nowPlaying.trackKey
 
         DispatchQueue.main.async {
-            self.nowPlaying = newState
+            // Only republish `nowPlaying` when something OTHER than the clock
+            // actually changed — the 4s safety poll used to reassign an equal
+            // struct every tick and re-render list views for nothing.
+            if self.nowPlaying != newState { self.nowPlaying = newState }
+            PlaybackClock.shared.time = cur
         }
 
-        publishNowPlaying(newState)
+        publishNowPlaying(newState, currentTime: cur)
 
         if !artURL.isEmpty {
-            if let cached = artworkCache[artURL] {
+            if let cached = cachedArtwork(artURL) {
                 DispatchQueue.main.async {
                     if self.artwork !== cached { self.artwork = cached }
                 }
@@ -131,15 +171,15 @@ final class MediaController: ObservableObject {
         }
     }
 
-    private func publishNowPlaying(_ s: NowPlaying) {
+    private func publishNowPlaying(_ s: NowPlaying, currentTime: Double) {
         var np: [String: Any] = [
             MPMediaItemPropertyTitle: s.title,
             MPMediaItemPropertyArtist: s.artist,
             MPMediaItemPropertyPlaybackDuration: s.duration,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: s.currentTime,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: currentTime,
             MPNowPlayingInfoPropertyPlaybackRate: s.isPlaying ? 1.0 : 0.0
         ]
-        if let img = artworkCache[s.artworkURL] {
+        if let img = cachedArtwork(s.artworkURL) {
             np[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: img.size) { _ in img }
         }
         let center = MPNowPlayingInfoCenter.default()
@@ -163,7 +203,7 @@ final class MediaController: ObservableObject {
                 DispatchQueue.main.async { completion(nil) }
                 return
             }
-            self.artworkCache[urlString] = image
+            self.cacheArtwork(image, for: urlString)
             DispatchQueue.main.async { completion(image) }
         }.resume()
     }

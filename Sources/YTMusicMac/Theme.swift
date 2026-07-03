@@ -1,9 +1,12 @@
 import Foundation
+import SwiftUI
 
-/// Color themes that recolor YT Music by overriding the CSS custom
-/// properties it uses for backgrounds and surfaces. Applied live via a
-/// single `<style id="__ytm_theme__">` element managed from JS — switching
-/// themes is just rewriting that one style.
+/// Color themes that recolor YT Music. Two consumers share one source of
+/// truth (the `palette` hex values):
+///   1. The classic WebView UI — via CSS custom properties injected into a
+///      single `<style id="__ytm_theme__">` element (see `css` / ThemeBridge).
+///   2. The Native Mode SwiftUI shell — via the `*Color` accessors below,
+///      which the shell uses for its surface tokens.
 enum Theme: String, CaseIterable, Identifiable {
     case `default`
     case oledBlack
@@ -12,42 +15,102 @@ enum Theme: String, CaseIterable, Identifiable {
     case dracula
     case sepia
     case rosePine
+    // Imported themes — each has a light (:root) and dark (.dark) variant.
+    case caffeineLight
+    case spotifyLight
+    case modernMinimalLight
+    case marvelLight
+    case caffeineDark
+    case spotifyDark
+    case modernMinimalDark
+    case marvelDark
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .default:   return "Default (YT Music)"
-        case .oledBlack: return "OLED Black"
-        case .midnight:  return "Midnight Blue"
-        case .forest:    return "Forest"
-        case .dracula:   return "Dracula"
-        case .sepia:     return "Sepia"
-        case .rosePine:  return "Rosé Pine"
+        case .default:           return "Default (YT Music)"
+        case .oledBlack:         return "OLED Black"
+        case .midnight:          return "Midnight Blue"
+        case .forest:            return "Forest"
+        case .dracula:           return "Dracula"
+        case .sepia:             return "Sepia"
+        case .rosePine:          return "Rosé Pine"
+        case .caffeineLight:     return "Caffeine"
+        case .spotifyLight:      return "Spotify"
+        case .modernMinimalLight:return "Modern Minimal"
+        case .marvelLight:       return "Marvel"
+        case .caffeineDark:      return "Caffeine"
+        case .spotifyDark:       return "Spotify"
+        case .modernMinimalDark: return "Modern Minimal"
+        case .marvelDark:        return "Marvel"
         }
     }
+
+    /// The three surface tints + optional text color, as hex. Single source
+    /// of truth for both the CSS and the native palette. `.default` mirrors
+    /// the near-black the native shell historically hardcoded.
+    struct Palette {
+        let base: String     // app background (main content)
+        let raised: String   // player bar / panels (= --card)
+        let menu: String     // hover / chips / popups (= --secondary/muted)
+        let text: String?    // nil = keep YT/white default
+        let accent: String   // active-control / highlight tint (= --primary)
+        let isDark: Bool     // drives colorScheme + .primary contrast
+        let sidebar: String  // sidebar surface (= --sidebar) — distinct region
+        let border: String   // dividers / outlines (= --border)
+    }
+
+    var palette: Palette {
+        switch self {
+        case .default:   return Palette(base: "#0b0b0d", raised: "#181819", menu: "#232326", text: nil,       accent: "#21cc75", isDark: true,  sidebar: "#141416", border: "#2a2a2e")
+        case .oledBlack: return Palette(base: "#000000", raised: "#0c0c0c", menu: "#101010", text: nil,       accent: "#21cc75", isDark: true,  sidebar: "#070707", border: "#1c1c1c")
+        case .midnight:  return Palette(base: "#0b1220", raised: "#141d30", menu: "#1a2440", text: "#e8ecf5", accent: "#4f8cff", isDark: true,  sidebar: "#0e1728", border: "#243150")
+        case .forest:    return Palette(base: "#0d1a0d", raised: "#152b15", menu: "#1b3a1b", text: "#e3f0e3", accent: "#21cc75", isDark: true,  sidebar: "#102610", border: "#244a24")
+        case .dracula:   return Palette(base: "#282a36", raised: "#343746", menu: "#44475a", text: "#f8f8f2", accent: "#bd93f9", isDark: true,  sidebar: "#21222e", border: "#44475a")
+        case .sepia:     return Palette(base: "#2a2419", raised: "#3a3327", menu: "#4a4031", text: "#e8dcc4", accent: "#d9a441", isDark: true,  sidebar: "#332c1f", border: "#514633")
+        case .rosePine:  return Palette(base: "#191724", raised: "#1f1d2e", menu: "#26233a", text: "#e0def4", accent: "#ebbcba", isDark: true,  sidebar: "#1f1d2e", border: "#403d54")
+        // Imported themes — light (:root) variants.
+        case .caffeineLight:     return Palette(base: "#f8f8f8", raised: "#fcfcfc", menu: "#ffdfb1", text: "#1f1f1f", accent: "#63493f", isDark: false, sidebar: "#ffffff", border: "#d7d7d7")
+        case .spotifyLight:      return Palette(base: "#fcfcfc", raised: "#ffffff", menu: "#d3e0ea", text: "#313e38", accent: "#00b262", isDark: false, sidebar: "#f3faff", border: "#dbe6ee")
+        case .modernMinimalLight:return Palette(base: "#ffffff", raised: "#ffffff", menu: "#dcf2ff", text: "#333333", accent: "#3981f6", isDark: false, sidebar: "#f6f8fb", border: "#e4e8ef")
+        case .marvelLight:       return Palette(base: "#fff6f5", raised: "#fceae8", menu: "#eac8c0", text: "#3a0608", accent: "#d40c1a", isDark: false, sidebar: "#fbf0ef", border: "#e6cfcc")
+        // Imported themes — dark (.dark) variants.
+        case .caffeineDark:      return Palette(base: "#121212", raised: "#1c1c1c", menu: "#3a3128", text: "#eeeeee", accent: "#fcdfc2", isDark: true,  sidebar: "#0d0d0d", border: "#2a2620")
+        case .spotifyDark:       return Palette(base: "#0a0e1a", raised: "#161b27", menu: "#282d3d", text: "#e9f0f5", accent: "#00b262", isDark: true,  sidebar: "#10131c", border: "#292e38")
+        case .modernMinimalDark: return Palette(base: "#161616", raised: "#262626", menu: "#1e3a8b", text: "#e4e4e4", accent: "#3981f6", isDark: true,  sidebar: "#101012", border: "#3a3a3a")
+        case .marvelDark:        return Palette(base: "#140f0e", raised: "#221c1b", menu: "#a4730b", text: "#f5eceb", accent: "#d40c1a", isDark: true,  sidebar: "#0d0807", border: "#383130")
+        }
+    }
+
+    // Native-shell colors derived from the palette.
+    /// " (Light)"/" (Dark)" only for the imported themes that ship both
+    /// variants — empty for the originals so their names stay clean.
+    var variantSuffix: String {
+        switch self {
+        case .caffeineLight, .spotifyLight, .modernMinimalLight, .marvelLight: return " (Light)"
+        case .caffeineDark, .spotifyDark, .modernMinimalDark, .marvelDark:     return " (Dark)"
+        default: return ""
+        }
+    }
+
+    var baseColor: Color    { Color(hex: palette.base) }
+    var surfaceColor: Color { Color(hex: palette.raised) }
+    var raisedColor: Color  { Color(hex: palette.menu) }
+    var accentColor: Color  { Color(hex: palette.accent) }
+    var sidebarColor: Color { Color(hex: palette.sidebar) }
+    var borderColor: Color  { Color(hex: palette.border) }
+    var isDark: Bool        { palette.isDark }
 
     /// CSS injected into the `<style id="__ytm_theme__">` slot. We override
     /// both the modern `--yt-spec-*` variables and the older `--ytmusic-*`
     /// ones, plus a fallback `background` rule on the app shell to catch
-    /// any spot that didn't pick up the variable.
+    /// any spot that didn't pick up the variable. `.default` leaves YT's
+    /// own theme untouched.
     var css: String {
-        switch self {
-        case .default:
-            return "" // no override
-        case .oledBlack:
-            return Self.make(base: "#000000", raised: "#0c0c0c", menu: "#101010", text: nil)
-        case .midnight:
-            return Self.make(base: "#0b1220", raised: "#141d30", menu: "#1a2440", text: "#e8ecf5")
-        case .forest:
-            return Self.make(base: "#0d1a0d", raised: "#152b15", menu: "#1b3a1b", text: "#e3f0e3")
-        case .dracula:
-            return Self.make(base: "#282a36", raised: "#343746", menu: "#44475a", text: "#f8f8f2")
-        case .sepia:
-            return Self.make(base: "#2a2419", raised: "#3a3327", menu: "#4a4031", text: "#e8dcc4")
-        case .rosePine:
-            return Self.make(base: "#191724", raised: "#1f1d2e", menu: "#26233a", text: "#e0def4")
-        }
+        guard self != .default else { return "" }
+        let p = palette
+        return Self.make(base: p.base, raised: p.raised, menu: p.menu, text: p.text)
     }
 
     /// Templated CSS so each theme is a single line of params.
@@ -118,6 +181,20 @@ enum Theme: String, CaseIterable, Identifiable {
           background-color: \(menu) !important;
         }
         """
+    }
+}
+
+extension Color {
+    /// Build a Color from a "#rrggbb" hex string. Falls back to black on a
+    /// malformed string so a bad theme value can't crash the UI.
+    init(hex: String) {
+        let s = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        var v: UInt64 = 0
+        Scanner(string: s).scanHexInt64(&v)
+        let r = Double((v >> 16) & 0xff) / 255
+        let g = Double((v >> 8) & 0xff) / 255
+        let b = Double(v & 0xff) / 255
+        self = Color(red: r, green: g, blue: b)
     }
 }
 

@@ -180,6 +180,11 @@ final class StatusActions: NSObject {
     @objc func next()      { MediaController.shared.run("next") }
     @objc func prev()      { MediaController.shared.run("prev") }
     @objc func togglePlayerPage() { MediaController.shared.run("togglePlayer") }
+    @objc func like()    { MediaController.shared.run("like") }
+    @objc func shuffle() { MediaController.shared.run("shuffle") }
+    @objc func repeatMode() { MediaController.shared.run("repeat") }
+    @objc func seekForward()  { MediaController.shared.run("seek", value: PlaybackClock.shared.time + 10) }
+    @objc func seekBackward() { MediaController.shared.run("seek", value: max(0, PlaybackClock.shared.time - 10)) }
 
     @objc func showMain() {
         DispatchQueue.main.async {

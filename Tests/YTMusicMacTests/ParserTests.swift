@@ -284,4 +284,132 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(playlists.count, 1)
         XCTAssertEqual(playlists[0].id, "VLPLchill")
     }
+
+    // MARK: - ChartsParser (Explore → charts)
+
+    func testChartsParserExtractsRankedSongShelf() {
+        // A carousel "Top songs" with song rows. Rank == position, order
+        // preserved, thumbnail takes the highest-res (last) entry.
+        let json = """
+        {
+          "contents": [
+            { "musicCarouselShelfRenderer": {
+                "header": { "musicCarouselShelfBasicHeaderRenderer": {
+                    "title": { "runs": [{ "text": "Top songs" }] }
+                }},
+                "contents": [
+                  { "musicResponsiveListItemRenderer": {
+                      "playlistItemData": { "videoId": "v1" },
+                      "flexColumns": [
+                        { "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": { "runs": [{ "text": "First Song" }] } } },
+                        { "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": { "runs": [{ "text": "Artist One" }] } } }
+                      ],
+                      "thumbnail": { "musicThumbnailRenderer": { "thumbnail": {
+                          "thumbnails": [{ "url": "https://s" }, { "url": "https://l" }]
+                      }}}
+                  }},
+                  { "musicResponsiveListItemRenderer": {
+                      "playlistItemData": { "videoId": "v2" },
+                      "flexColumns": [
+                        { "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": { "runs": [{ "text": "Second Song" }] } } },
+                        { "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": { "runs": [{ "text": "Artist Two" }] } } }
+                      ]
+                  }}
+                ]
+            }}
+          ]
+        }
+        """.data(using: .utf8)!
+        let sections = ChartsParser.parse(data: json)
+        XCTAssertEqual(sections.count, 1)
+        XCTAssertEqual(sections[0].title, "Top songs")
+        XCTAssertEqual(sections[0].tracks.map { $0.id }, ["v1", "v2"],
+                       "order must be preserved — position is the rank")
+        XCTAssertEqual(sections[0].tracks[0].title, "First Song")
+        XCTAssertEqual(sections[0].tracks[0].artist, "Artist One")
+        XCTAssertEqual(sections[0].tracks[0].thumbnailURL, "https://l")
+    }
+
+    func testChartsParserReadsMusicShelfRendererTitleAndOverlayVideoId() {
+        // The non-carousel shelf variant puts title.runs directly on the
+        // renderer, and some rows only carry the videoId in the play-button
+        // overlay endpoint (no playlistItemData).
+        let json = """
+        {
+          "contents": [
+            { "musicShelfRenderer": {
+                "title": { "runs": [{ "text": "Trending" }] },
+                "contents": [
+                  { "musicResponsiveListItemRenderer": {
+                      "flexColumns": [
+                        { "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": { "runs": [{ "text": "Hot Track" }] } } }
+                      ],
+                      "overlay": { "musicItemThumbnailOverlayRenderer": { "content": {
+                          "musicPlayButtonRenderer": { "playNavigationEndpoint": {
+                              "watchEndpoint": { "videoId": "ov1" }
+                          }}
+                      }}}
+                  }}
+                ]
+            }}
+          ]
+        }
+        """.data(using: .utf8)!
+        let sections = ChartsParser.parse(data: json)
+        XCTAssertEqual(sections.count, 1)
+        XCTAssertEqual(sections[0].title, "Trending")
+        XCTAssertEqual(sections[0].tracks.count, 1)
+        XCTAssertEqual(sections[0].tracks[0].id, "ov1")
+        XCTAssertEqual(sections[0].tracks[0].title, "Hot Track")
+    }
+
+    func testChartsParserSkipsCardOnlyShelvesAndDedupes() {
+        // "Top artists" is cards (no videoId) -> no tracks -> skipped.
+        // A song shelf with a duplicate videoId keeps only the first.
+        let json = """
+        {
+          "contents": [
+            { "musicCarouselShelfRenderer": {
+                "header": { "musicCarouselShelfBasicHeaderRenderer": {
+                    "title": { "runs": [{ "text": "Top artists" }] }
+                }},
+                "contents": [
+                  { "musicTwoRowItemRenderer": {
+                      "title": { "runs": [{ "text": "Some Artist" }] },
+                      "navigationEndpoint": { "browseEndpoint": { "browseId": "UCabc" } }
+                  }}
+                ]
+            }},
+            { "musicCarouselShelfRenderer": {
+                "header": { "musicCarouselShelfBasicHeaderRenderer": {
+                    "title": { "runs": [{ "text": "Top music videos" }] }
+                }},
+                "contents": [
+                  { "musicResponsiveListItemRenderer": {
+                      "playlistItemData": { "videoId": "dup" },
+                      "flexColumns": [
+                        { "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": { "runs": [{ "text": "A" }] } } } ]
+                  }},
+                  { "musicResponsiveListItemRenderer": {
+                      "playlistItemData": { "videoId": "dup" },
+                      "flexColumns": [
+                        { "musicResponsiveListItemFlexColumnRenderer": {
+                            "text": { "runs": [{ "text": "A again" }] } } } ]
+                  }}
+                ]
+            }}
+          ]
+        }
+        """.data(using: .utf8)!
+        let sections = ChartsParser.parse(data: json)
+        XCTAssertEqual(sections.count, 1, "card-only artist shelf must be skipped")
+        XCTAssertEqual(sections[0].title, "Top music videos")
+        XCTAssertEqual(sections[0].tracks.map { $0.id }, ["dup"], "duplicate videoId dropped")
+    }
 }

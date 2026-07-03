@@ -63,8 +63,34 @@ final class MainWindowController: NSObject, NSWindowDelegate {
                     return true
                 default: return false
                 }
+            case .keyDown where !event.modifierFlags.contains(.command):
+                // Transport shortcuts — but never steal keys while the user
+                // is typing in a text field (search, rename, create dialog).
+                // The native shell's fields are SwiftUI TextFields, whose
+                // first responder is NOT an NSText, so checking that alone
+                // let space/arrows leak out of the search box (space would
+                // toggle playback, arrows would seek instead of moving the
+                // caret). NSTextInputContext.current is non-nil whenever ANY
+                // text input client — AppKit field editor OR SwiftUI TextField
+                // — is active in the responder chain, so it catches both.
+                if firstResponder is NSText || NSTextInputContext.current != nil { return false }
+                switch event.keyCode {
+                case 49:  // space → play/pause
+                    MediaController.shared.run("playpause")
+                    return true
+                case 123: // ← seek back 5s
+                    seek(by: -5); return true
+                case 124: // → seek forward 5s
+                    seek(by: 5); return true
+                default: return false
+                }
             default: return false
             }
+        }
+
+        private func seek(by delta: Double) {
+            let cur = PlaybackClock.shared.time
+            MediaController.shared.run("seek", value: max(0, cur + delta))
         }
     }
 
@@ -135,6 +161,20 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         } else {
             nativeOverlay?.removeFromSuperview()
             nativeOverlay = nil
+        }
+    }
+
+    /// Clip mode: bring the WebView (now showing the full-window music video)
+    /// ABOVE the SwiftUI shell, or send it back behind. Purely a z-order swap
+    /// of the two existing sibling subviews — fully reversible.
+    func setClipMode(_ on: Bool) {
+        guard let container = window?.contentView,
+              let webView = WebViewHolder.shared.webView,
+              let host = nativeOverlay else { return }
+        if on {
+            container.addSubview(webView, positioned: .above, relativeTo: host)
+        } else {
+            container.addSubview(host, positioned: .above, relativeTo: webView)
         }
     }
 

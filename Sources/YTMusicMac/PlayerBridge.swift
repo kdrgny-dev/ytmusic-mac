@@ -3,255 +3,6 @@ import Foundation
 enum PlayerBridge {
 
     // ---------- CSS features (toggleable from native) ----------
-
-    /// Hides YT Music's Premium upsell banners and forces the dynamic
-    /// art-tinted background gradient (which spans the whole browse area)
-    /// to the theme's base background color instead. Selectors are narrow
-    /// and known — wildcard patterns caused regressions last time.
-    static let hidePromosCSS = #"""
-    ytmusic-premium-promo-renderer,
-    ytmusic-mealbar-promo-renderer,
-    ytmusic-statement-banner-renderer,
-    ytmusic-you-there-renderer,
-    ytmusic-popup-container ytmusic-promo-renderer,
-    tp-yt-paper-dialog#mealbar-promo,
-    tp-yt-paper-dialog#consent-bump-v2-lightbox {
-      display: none !important;
-    }
-    /* Flatten the art-derived gradient backdrop to the theme color */
-    .background-gradient.ytmusic-browse-response,
-    ytmusic-browse-response .background-gradient {
-      background: var(--yt-spec-base-background, #030303) !important;
-      background-image: none !important;
-      background-color: var(--yt-spec-base-background, #030303) !important;
-      opacity: 1 !important;
-    }
-    ytmusic-background-renderer {
-      display: none !important;
-    }
-    """#
-
-    /// Stacked playlist header — Spotify-style. Targets the actual DOM:
-    /// `ytmusic-two-column-browse-results-renderer` splits a detail page into
-    /// `#primary` (header) and `#secondary` (track list) columns AND uses
-    /// CSS grid plus sticky positioning. We collapse the grid to a single
-    /// column, kill all sticky/fixed positioning in the chain, then rebuild
-    /// the header as cover-left + info-right.
-    static let stackedHeaderCSS = #"""
-    /* ============================================================
-       1. Page-level: collapse the two-column split into one column.
-       Use display:flex column AND grid overrides AND child flex-basis
-       so we win regardless of whether YT's CSS uses grid or flex.
-       ============================================================ */
-    html body ytmusic-browse-response ytmusic-two-column-browse-results-renderer,
-    ytmusic-browse-response ytmusic-two-column-browse-results-renderer,
-    ytmusic-two-column-browse-results-renderer {
-      display: flex !important;
-      flex-direction: column !important;
-      flex-wrap: wrap !important;
-      grid-template-columns: 1fr !important;
-      grid-template-rows: auto auto !important;
-      grid-template-areas: none !important;
-      align-items: stretch !important;
-    }
-
-    ytmusic-two-column-browse-results-renderer > #primary,
-    ytmusic-two-column-browse-results-renderer > #secondary {
-      display: block !important;
-      position: static !important;
-      width: 100% !important;
-      max-width: none !important;
-      min-width: 0 !important;
-      flex: 0 0 auto !important;
-      flex-basis: 100% !important;
-      grid-column: 1 / -1 !important;
-      grid-row: auto !important;
-      grid-area: auto !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      top: auto !important; left: auto !important;
-      right: auto !important; bottom: auto !important;
-      transform: none !important;
-    }
-
-    /* Kill any max-width / margin constraints in the section-list chain so
-       the header spans the same width as the track list below it. */
-    ytmusic-two-column-browse-results-renderer ytmusic-section-list-renderer,
-    ytmusic-two-column-browse-results-renderer ytmusic-section-list-renderer > #contents,
-    ytmusic-editable-playlist-detail-header-renderer {
-      width: 100% !important;
-      max-width: none !important;
-      min-width: 0 !important;
-      margin-left: 0 !important;
-      margin-right: 0 !important;
-      padding-left: 0 !important;
-      padding-right: 0 !important;
-    }
-
-    /* ============================================================
-       2. Header chain: nuke sticky/fixed/absolute positioning so
-       nothing floats over the page.
-       ============================================================ */
-    ytmusic-editable-playlist-detail-header-renderer,
-    ytmusic-responsive-header-renderer,
-    ytmusic-responsive-header-renderer > *,
-    ytmusic-responsive-header-renderer ytmusic-thumbnail-renderer,
-    ytmusic-responsive-header-renderer ytmusic-thumbnail-renderer *,
-    ytmusic-responsive-header-renderer yt-img-shadow,
-    ytmusic-responsive-header-renderer yt-img-shadow img {
-      position: static !important;
-      top: auto !important; left: auto !important;
-      right: auto !important; bottom: auto !important;
-      inset: auto !important;
-      transform: none !important;
-      float: none !important;
-    }
-    /* Hide empty dom-if templates that would otherwise steal grid cells */
-    ytmusic-responsive-header-renderer > dom-if {
-      display: none !important;
-    }
-
-    /* ============================================================
-       3. Header layout: 3-column grid — cover left, info middle,
-       optional video clip on the right (added by JS when enabled).
-       Attribute selector boosts specificity to beat YT's own rules.
-       ============================================================ */
-    html body ytmusic-responsive-header-renderer[is-playlist-detail-page],
-    ytmusic-responsive-header-renderer[is-playlist-detail-page],
-    ytmusic-responsive-header-renderer {
-      display: grid !important;
-      grid-template-columns: 220px 1fr !important;
-      grid-template-rows: auto !important;
-      grid-auto-rows: auto !important;
-      column-gap: 24px !important;
-      row-gap: 4px !important;
-      align-items: start !important;
-      justify-items: start !important;
-      padding: 24px 32px !important;
-      width: 100% !important;
-      max-width: 100% !important;
-      min-height: 0 !important;
-      height: auto !important;
-      background: transparent !important;
-    }
-
-    /* Cover in column 1. Use span 10 — covers the ~6 info children we know
-       about without leaving empty rows that push the cover to the bottom. */
-    ytmusic-responsive-header-renderer > ytmusic-thumbnail-renderer.thumbnail {
-      grid-column: 1 !important;
-      grid-row: 1 / span 10 !important;
-      width: 220px !important;
-      height: 220px !important;
-      margin: 0 !important;
-      align-self: start !important;
-      justify-self: start !important;
-    }
-    ytmusic-responsive-header-renderer > .thumbnail-edit-button-wrapper {
-      grid-column: 1 !important;
-      grid-row: 1 / span 10 !important;
-      align-self: end !important;
-      justify-self: end !important;
-      position: relative !important;
-      margin: 0 8px 8px 0 !important;
-      z-index: 2 !important;
-    }
-    ytmusic-responsive-header-renderer yt-img-shadow,
-    ytmusic-responsive-header-renderer yt-img-shadow #img,
-    ytmusic-responsive-header-renderer yt-img-shadow img {
-      width: 220px !important;
-      height: 220px !important;
-      max-width: 220px !important;
-      max-height: 220px !important;
-      display: block !important;
-      margin: 0 !important;
-    }
-
-    /* Info elements in column 2, top-aligned and left-aligned */
-    ytmusic-responsive-header-renderer > h1,
-    ytmusic-responsive-header-renderer > .facepile-container,
-    ytmusic-responsive-header-renderer > .subtitle-wrapper,
-    ytmusic-responsive-header-renderer > .second-subtitle-container,
-    ytmusic-responsive-header-renderer > #header-description,
-    ytmusic-responsive-header-renderer > #countdown-timer,
-    ytmusic-responsive-header-renderer > #action-buttons {
-      grid-column: 2 !important;
-      justify-self: start !important;
-      align-self: start !important;
-      text-align: left !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      width: auto !important;
-      max-width: 100% !important;
-    }
-    ytmusic-responsive-header-renderer > h1 {
-      font-size: 32px !important;
-      line-height: 1.1 !important;
-      margin: 0 !important;
-      padding: 0 !important;
-    }
-    ytmusic-responsive-header-renderer > #action-buttons {
-      display: flex !important;
-      flex-direction: row !important;
-      justify-content: flex-start !important;
-      gap: 8px !important;
-      margin-top: 8px !important;
-    }
-    """#
-
-    /// Compact mode: narrower sidebar, tighter row paddings, hides the
-    /// "K G" subtitle on user playlists. Lets more content fit on screen.
-    static let compactModeCSS = #"""
-    /* Sidebar width — YT Music drives this via a Polymer variable AND a
-       hard-coded width on the drawer element. Override every reasonable
-       hook we can find. */
-    ytmusic-app-layout {
-      --ytmusic-nav-bar-height: 56px !important;
-      --ytmusic-guide-width: 200px !important;
-    }
-    ytmusic-app-layout #guide,
-    ytmusic-app-layout tp-yt-app-drawer#guide,
-    tp-yt-app-drawer#guide.ytmusic-app-layout {
-      width: 200px !important;
-      min-width: 200px !important;
-      max-width: 200px !important;
-    }
-    ytmusic-app-layout #guide .draggable-area,
-    ytmusic-guide-renderer {
-      width: 100% !important;
-    }
-    ytmusic-guide-entry-renderer {
-      padding-top: 2px !important;
-      padding-bottom: 2px !important;
-    }
-    /* Hide "K G" subtitles under playlist names — name is enough */
-    ytmusic-guide-entry-renderer .subtitle.ytmusic-guide-entry-renderer,
-    ytmusic-guide-entry-renderer yt-formatted-string.subtitle {
-      display: none !important;
-    }
-    /* Tighter track rows everywhere */
-    ytmusic-responsive-list-item-renderer {
-      padding-top: 4px !important;
-      padding-bottom: 4px !important;
-    }
-    /* Smaller home-page section paddings */
-    ytmusic-carousel-shelf-renderer,
-    ytmusic-shelf-renderer {
-      padding-top: 12px !important;
-      padding-bottom: 12px !important;
-    }
-    """#
-
-    /// Zebra striping on list rows (playlist tracks, albums, search results)
-    /// for easier scanning.
-    static let zebraStripingCSS = #"""
-    ytmusic-responsive-list-item-renderer:nth-of-type(even) {
-      background: rgba(255, 255, 255, 0.035) !important;
-    }
-    ytmusic-responsive-list-item-renderer:hover {
-      background: rgba(255, 255, 255, 0.08) !important;
-    }
-    """#
-
     /// "Native Mode" — hides YT Music's entire visible UI by collapsing
     /// the app-layout. The <video> element underneath keeps playing audio,
     /// so the WebView is now just an invisible audio engine. Our SwiftUI
@@ -271,50 +22,29 @@ enum PlayerBridge {
       background: #030303 !important;
     }
     """#
-
-    /// Player-bar: song info on the left, transport controls centered,
-    /// secondary controls on the right (Spotify-style).
-    static let playerLayoutCSS = #"""
-    ytmusic-app ytmusic-player-bar {
-      display: grid !important;
-      grid-template-columns: 1fr auto 1fr !important;
-      grid-template-areas: "info transport extras" !important;
-      align-items: center !important;
-      gap: 16px !important;
-    }
-    ytmusic-app ytmusic-player-bar .middle-controls.ytmusic-player-bar {
-      grid-area: info !important;
-      justify-self: start !important;
-      width: auto !important;
-      max-width: 100% !important;
-      min-width: 0 !important;
-      flex: 0 1 auto !important;
-    }
-    ytmusic-app ytmusic-player-bar .left-controls.ytmusic-player-bar {
-      grid-area: transport !important;
-      justify-self: center !important;
-      width: auto !important;
-      flex: 0 0 auto !important;
-    }
-    ytmusic-app ytmusic-player-bar .right-controls.ytmusic-player-bar {
-      grid-area: extras !important;
-      justify-self: end !important;
-      width: auto !important;
-      flex: 0 1 auto !important;
-    }
-    """#
-
     /// Bootstrap script: installs each feature as a separate `<style id="__ytm_<name>">`
     /// element. `window.__ytmSetFeature(name, on)` flips `style.disabled` to enable
     /// or disable a feature live without reloading the page.
+    /// "Clip mode" — pin the <video> element full-window on top of everything
+    /// so the music video plays edge-to-edge. Used together with disabling
+    /// hideYTApp (the video lives inside the app-layout we normally collapse).
+    static let videoOnlyCSS = #"""
+    video {
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      object-fit: contain !important;
+      z-index: 2147483000 !important;
+      background: #000 !important;
+    }
+    html, body, ytmusic-app { background: #000 !important; }
+    """#
+
     static var cssBootstrapScript: String {
         let features: [(name: String, css: String, default: Bool)] = [
-            ("hidePromos", hidePromosCSS, true),
-            ("playerLayout", playerLayoutCSS, true),
-            ("zebraStriping", zebraStripingCSS, true),
-            ("compactMode", compactModeCSS, false),
-            ("stackedHeader", stackedHeaderCSS, false),
-            ("hideYTApp", hideYTAppCSS, false)
+            ("hideYTApp", hideYTAppCSS, false),
+            ("videoOnly", videoOnlyCSS, false)
         ]
         let entries = features.map { f -> String in
             // JS-escape the CSS string (backticks + backslashes + ${ })
@@ -406,11 +136,69 @@ enum PlayerBridge {
 
       function q(sel) { return document.querySelector(sel); }
 
+      // ---------- Autoplay suppression (after idle reload) ----------
+      // The idle reloader sets localStorage '__ytmSuppressAutoplay' to an
+      // expiry timestamp BEFORE reloading. Until it expires, pause any video
+      // that tries to play — so a 30-min-paused session doesn't spontaneously
+      // resume the current /watch track in the background after the reload.
+      (function() {
+        var until = 0;
+        try { until = parseInt(localStorage.getItem('__ytmSuppressAutoplay') || '0', 10) || 0; } catch (e) {}
+        if (Date.now() >= until) {
+          try { localStorage.removeItem('__ytmSuppressAutoplay'); } catch (e) {}
+          return;
+        }
+        var guard = setInterval(function() {
+          try {
+            if (Date.now() >= until) {
+              clearInterval(guard);
+              try { localStorage.removeItem('__ytmSuppressAutoplay'); } catch (e) {}
+              return;
+            }
+            var v = q('video');
+            if (v && !v.paused) v.pause();
+          } catch (e) {}
+        }, 150);
+      })();
+
+      // Shuffle/repeat state lives on the <ytmusic-player-bar> element, not
+      // on the buttons (which expose no aria-pressed). shuffle-on is a boolean
+      // attribute; repeat-mode is "NONE" | "ALL" | "ONE".
+      function shuffleIsOn() {
+        try { var b = q('ytmusic-player-bar'); return !!(b && b.hasAttribute('shuffle-on')); }
+        catch (e) { return false; }
+      }
+      function repeatModeStr() {
+        try { var b = q('ytmusic-player-bar'); return (b && b.getAttribute('repeat-mode')) || 'NONE'; }
+        catch (e) { return 'NONE'; }
+      }
+
       function likeStatus() {
         try {
           var el = q('ytmusic-like-button-renderer');
           return el ? el.getAttribute('like-status') : null;
         } catch (e) { return null; }
+      }
+
+      // YT Music shows a Song/Video toggle only when a music video counterpart
+      // exists for the current track. Its presence == "this track has a clip".
+      function hasVideoToggle() {
+        try { return !!q('ytmusic-av-toggle'); } catch (e) { return false; }
+      }
+      // Click the Video (or Song) segment of that toggle.
+      function switchAV(toVideo) {
+        try {
+          var t = q('ytmusic-av-toggle');
+          if (!t) return;
+          var want = toVideo ? 'video' : 'song';
+          var btns = t.querySelectorAll('button, tp-yt-paper-button, [role="button"], a');
+          for (var i = 0; i < btns.length; i++) {
+            var lbl = ((btns[i].getAttribute('aria-label') || '') + ' ' + (btns[i].textContent || '')).toLowerCase();
+            if (lbl.indexOf(want) !== -1) { btns[i].click(); return; }
+          }
+          // Fallback: the toggle itself flips between the two states.
+          (btns[toVideo ? btns.length - 1 : 0] || t).click();
+        } catch (e) {}
       }
 
       function currentVideoId() {
@@ -429,13 +217,18 @@ enum PlayerBridge {
             playing: v ? !v.paused : false,
             currentTime: v ? v.currentTime : 0,
             duration: (v && isFinite(v.duration)) ? v.duration : 0,
-            volume: v ? v.volume : 1,
+            // Report the user's INTENDED volume, not the momentary faded
+            // value — otherwise the native slider would dance during a fade.
+            volume: (window.__ytmBaseVolume != null ? window.__ytmBaseVolume : (v ? v.volume : 1)),
             title: titleEl ? titleEl.textContent.trim() : '',
             artist: artistEl ? artistEl.textContent.trim() : '',
             artwork: artEl ? artEl.src : '',
             videoId: currentVideoId(),
             liked: likeStatus() === 'LIKE',
-            disliked: likeStatus() === 'DISLIKE'
+            disliked: likeStatus() === 'DISLIKE',
+            shuffle: shuffleIsOn(),
+            repeatMode: repeatModeStr(),
+            hasVideo: hasVideoToggle()
           };
           window.webkit.messageHandlers.ytmBridge.postMessage(payload);
         } catch (e) {}
@@ -453,10 +246,19 @@ enum PlayerBridge {
         var v = q('video');
         if (!v || v.__ytmListened) return !!v;
         v.__ytmListened = true;
-        ['play', 'pause', 'seeked', 'ratechange', 'volumechange',
+        // NOTE: 'volumechange' is intentionally NOT in this list. The
+        // crossfade ramp writes v.volume ~8x/sec; routing those through
+        // sendSoon would flood the native bridge. User volume changes come
+        // through __ytmCmd('volume'), which calls sendSoon() itself.
+        ['play', 'pause', 'seeked', 'ratechange',
          'loadedmetadata', 'durationchange', 'ended'].forEach(function(ev) {
           v.addEventListener(ev, sendSoon);
         });
+        // Crossfade drivers: run the volume ramp only while actually playing.
+        v.addEventListener('play', startFadeTicker);
+        v.addEventListener('pause', stopFadeTicker);
+        v.addEventListener('ended', stopFadeTicker);
+        v.addEventListener('loadedmetadata', applyFade);
         // Distinct 'ended' notification for own-queue chaining — separate
         // from the player-state poll so native can react in one hop.
         // Filter spurious 'ended' events: YT clears video.src during
@@ -527,9 +329,9 @@ enum PlayerBridge {
           // Respect a manual toggle for 30s so user can listen sequentially.
           if (Date.now() - window.__ytmUserToggledShuffleAt < 30000) return;
           attachShuffleClickListener();
+          if (shuffleIsOn()) return;
           var btn = findShuffleBtn();
           if (!btn) return;
-          if (isShufflePressed(btn)) return;
           btn.click();
         } catch (e) {}
       }
@@ -545,12 +347,82 @@ enum PlayerBridge {
       // clicks from inside YT's UI, etc. 4s is plenty for these.
       setInterval(send, 4000);
 
+      // ---------- Crossfade / auto-fade ----------
+      // True Spotify-style overlap isn't possible with YT's single <video>
+      // element, so we do the perceptual equivalent: fade the tail of the
+      // outgoing track down to silence over the last N seconds, then fade the
+      // head of the incoming track up from silence over its first N seconds.
+      // The whole ramp lives here in JS driven by a short ticker so it stays
+      // smooth without waking the native side.
+      window.__ytmFadeEnabled = (typeof window.__ytmFadeEnabled === 'boolean') ? window.__ytmFadeEnabled : false;
+      window.__ytmFadeDur = (typeof window.__ytmFadeDur === 'number') ? window.__ytmFadeDur : 5;
+      // The user's INTENDED volume (0..1). Every fade scales this; the native
+      // slider reads this, never the momentary faded value. Persisted under
+      // our own key so a mid-fade write YT may have stored can't corrupt it.
+      window.__ytmBaseVolume = (typeof window.__ytmBaseVolume === 'number') ? window.__ytmBaseVolume : null;
+      (function() {
+        try {
+          var sb = parseFloat(localStorage.getItem('__ytm_base_volume') || '');
+          if (isFinite(sb)) window.__ytmBaseVolume = Math.max(0, Math.min(1, sb));
+        } catch (e) {}
+      })();
+
+      function fadeSetVolume(v, val) {
+        var clamped = Math.max(0, Math.min(1, val));
+        if (Math.abs(v.volume - clamped) > 0.0005) v.volume = clamped;
+      }
+      function applyFade() {
+        try {
+          var v = q('video');
+          if (!v) return;
+          if (window.__ytmBaseVolume == null) window.__ytmBaseVolume = v.volume;
+          var base = window.__ytmBaseVolume, dur = window.__ytmFadeDur;
+          if (!window.__ytmFadeEnabled || dur <= 0) { fadeSetVolume(v, base); return; }
+          var D = v.duration, t = v.currentTime;
+          // Skip fading for tracks too short to hold both a fade-in and out.
+          if (!isFinite(D) || D <= 0 || D < dur * 2 + 1) { fadeSetVolume(v, base); return; }
+          var target = base;
+          if (t < dur) target = base * (t / dur);                          // fade in
+          else if (t > D - dur) target = base * Math.max(0, (D - t) / dur); // fade out
+          fadeSetVolume(v, target);
+        } catch (e) {}
+      }
+      var __ytmFadeTimer = null;
+      function startFadeTicker() {
+        if (__ytmFadeTimer || !window.__ytmFadeEnabled) return;
+        __ytmFadeTimer = setInterval(function() {
+          var v = q('video');
+          if (!v || v.paused) { stopFadeTicker(); return; }
+          applyFade();
+        }, 120);
+      }
+      function stopFadeTicker() {
+        if (__ytmFadeTimer) { clearInterval(__ytmFadeTimer); __ytmFadeTimer = null; }
+      }
+      window.__ytmSetFade = function(enabled, dur) {
+        window.__ytmFadeEnabled = !!enabled;
+        if (typeof dur === 'number') window.__ytmFadeDur = Math.max(0, Math.min(12, dur));
+        var v = q('video');
+        if (window.__ytmFadeEnabled && v && !v.paused) startFadeTicker();
+        else { stopFadeTicker(); applyFade(); } // restore base volume if we were mid-fade
+      };
+
       window.__ytmCmd = function(cmd, arg) {
         try {
           var v = q('video');
           if (cmd === 'playpause') { if (v) { v.paused ? v.play() : v.pause(); } return; }
           if (cmd === 'seek')      { if (v && typeof arg === 'number') v.currentTime = arg; return; }
-          if (cmd === 'volume')    { if (v && typeof arg === 'number') v.volume = Math.max(0, Math.min(1, arg)); return; }
+          if (cmd === 'volume')    {
+            if (typeof arg === 'number') {
+              var nb = Math.max(0, Math.min(1, arg));
+              window.__ytmBaseVolume = nb;
+              try { localStorage.setItem('__ytm_base_volume', String(nb)); } catch (e) {}
+              // Apply now; the ticker re-scales it if we're inside a fade zone.
+              if (v) fadeSetVolume(v, nb);
+              sendSoon();
+            }
+            return;
+          }
           if (cmd === 'like') {
             var like = q('ytmusic-like-button-renderer #button-shape-like') ||
                        q('ytmusic-like-button-renderer button[aria-label*="like" i]:not([aria-label*="dislike" i])');
@@ -561,6 +433,41 @@ enum PlayerBridge {
             var dis = q('ytmusic-like-button-renderer #button-shape-dislike') ||
                       q('ytmusic-like-button-renderer button[aria-label*="dislike" i]');
             if (dis) dis.click();
+            return;
+          }
+          if (cmd === 'shuffle') {
+            // Toggle YT's real shuffle button, then sync the always-shuffle
+            // keeper to the new state so it maintains the user's choice (with
+            // a 30s grace window so it doesn't immediately fight it).
+            var wasOn = shuffleIsOn();
+            var sb = findShuffleBtn();
+            if (sb) sb.click();
+            window.__ytmAlwaysShuffle = !wasOn;
+            window.__ytmUserToggledShuffleAt = Date.now();
+            setTimeout(send, 200); // re-read shuffle-on after YT updates it
+            return;
+          }
+          if (cmd === 'shuffleon' || cmd === 'shuffleoff') {
+            // Explicitly set shuffle state (used by the header Play/Shuffle
+            // buttons so Play = in order, Shuffle = shuffled).
+            var want = (cmd === 'shuffleon');
+            window.__ytmAlwaysShuffle = want;
+            window.__ytmUserToggledShuffleAt = want ? 0 : Date.now();
+            var sbtn = findShuffleBtn();
+            if (sbtn && shuffleIsOn() !== want) sbtn.click();
+            if (want) setTimeout(ensureShuffle, 300);
+            setTimeout(send, 250);
+            return;
+          }
+          if (cmd === 'repeat') {
+            // Cycle YT's repeat button (NONE -> ALL -> ONE -> NONE).
+            var rb = q('.repeat.ytmusic-player-bar')
+                  || q('ytmusic-player-bar tp-yt-paper-icon-button.repeat')
+                  || q('ytmusic-player-bar [aria-label*="repeat" i]')
+                  || q('ytmusic-player-bar [aria-label*="yinele" i]')
+                  || q('ytmusic-player-bar [aria-label*="tekrar" i]');
+            if (rb) { var ib = rb.querySelector('button') || rb; ib.click(); }
+            setTimeout(send, 200); // re-read repeat-mode after YT updates it
             return;
           }
           if (cmd === 'togglePlayer') {
@@ -589,6 +496,103 @@ enum PlayerBridge {
         } catch (e) {}
       };
 
+      // ---------- Clip (music video) mode ----------
+      // Switches YT to the video counterpart and injects an always-visible
+      // "back" button so the user can exit even if native layering hiccups.
+      // YT Music's <video> lives inside a shadow DOM, so an injected document
+      // <style> can't reach it. Setting the element's INLINE style does (it
+      // applies directly to the node), so we pin it full-window that way.
+      function pinVideo() {
+        var v = q('video');
+        if (!v) return;
+        // YT's player container has a `transform`, which traps position:fixed
+        // inside it instead of the viewport. Moving the <video> to be a direct
+        // child of <body> escapes that containing block. The element keeps
+        // playing across the move. We stash its original parent to restore later.
+        if (v.parentElement !== document.body) {
+          if (!v.__ytmOrigParent) v.__ytmOrigParent = v.parentElement;
+          document.body.appendChild(v);
+        }
+        // YT's own transport bar is behind us now, so give the <video> its
+        // native HTML5 controls (play/pause + seek bar + volume).
+        v.controls = true;
+        var s = v.style;
+        s.setProperty('position', 'fixed', 'important');
+        s.setProperty('top', '0', 'important');
+        s.setProperty('left', '0', 'important');
+        s.setProperty('width', '100vw', 'important');
+        s.setProperty('height', '100vh', 'important');
+        s.setProperty('max-width', 'none', 'important');
+        s.setProperty('max-height', 'none', 'important');
+        s.setProperty('object-fit', 'contain', 'important');
+        // Just below the injected back button (2147483646) so it stays clickable.
+        s.setProperty('z-index', '2147483000', 'important');
+        s.setProperty('background', '#000', 'important');
+      }
+      function unpinVideo() {
+        var v = q('video');
+        if (!v) return;
+        ['position','top','left','width','height','max-width','max-height',
+         'object-fit','z-index','background'].forEach(function(p) {
+          v.style.removeProperty(p);
+        });
+        v.controls = false; // hand transport back to YT
+        // Put the video back where YT expects it.
+        if (v.__ytmOrigParent) {
+          try { v.__ytmOrigParent.appendChild(v); } catch (e) {}
+          v.__ytmOrigParent = null;
+        }
+      }
+
+      var __ytmClipProbe = null;
+      window.__ytmEnterClip = function() {
+        try {
+          switchAV(true);
+          pinVideo();
+          if (!document.getElementById('__ytm_clip_back')) {
+            var b = document.createElement('button');
+            b.id = '__ytm_clip_back';
+            b.textContent = '‹ Kapağa dön';
+            b.style.cssText = 'position:fixed;top:16px;left:16px;z-index:2147483646;'
+              + 'padding:8px 14px;border-radius:999px;border:none;cursor:pointer;'
+              + 'background:rgba(0,0,0,0.6);color:#fff;font:600 13px -apple-system,sans-serif;'
+              + 'backdrop-filter:blur(8px);';
+            b.onclick = function() {
+              try { window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'exitClip' }); } catch (e) {}
+            };
+            document.body.appendChild(b);
+          }
+          // Confirm a REAL video is playing (audio-only tracks keep
+          // videoHeight === 0). If nothing shows after ~5s, tell native so
+          // it can bail out cleanly instead of leaving a black screen.
+          if (__ytmClipProbe) clearInterval(__ytmClipProbe);
+          var tries = 0, sawVideo = false;
+          // Keep re-pinning for the WHOLE clip session — YT reflows the player
+          // on track changes / layout and would otherwise reclaim the <video>.
+          __ytmClipProbe = setInterval(function() {
+            tries++;
+            pinVideo(); // reparent + style, re-assert every tick
+            var v = q('video');
+            if (v && v.videoHeight > 0) sawVideo = true;
+            // No real video after ~5s → bail out cleanly.
+            if (!sawVideo && tries > 25) {
+              clearInterval(__ytmClipProbe); __ytmClipProbe = null;
+              unpinVideo();
+              try { window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'clipUnavailable' }); } catch (e) {}
+            }
+          }, 300);
+        } catch (e) {}
+      };
+      window.__ytmExitClip = function() {
+        try {
+          if (__ytmClipProbe) { clearInterval(__ytmClipProbe); __ytmClipProbe = null; }
+          unpinVideo();
+          var b = document.getElementById('__ytm_clip_back');
+          if (b) b.remove();
+          switchAV(false); // back to the audio-only "Song" version
+        } catch (e) {}
+      };
+
       window.__ytmFocusSearch = function() {
         try {
           var input = q('ytmusic-search-box input') || q('input#input');
@@ -605,11 +609,21 @@ enum PlayerBridge {
           var items = document.querySelectorAll('ytmusic-player-queue-item');
           var out = [];
           var playingIndex = -1;
+          var lastKey = null;
           for (var i = 0; i < items.length; i++) {
             var item = items[i];
             var titleEl = item.querySelector('.song-title, yt-formatted-string.song-title');
             var artistEl = item.querySelector('.byline, yt-formatted-string.byline');
             var imgEl = item.querySelector('yt-img-shadow img, img');
+            var title = titleEl ? titleEl.textContent.trim() : '';
+            var artist = artistEl ? artistEl.textContent.trim() : '';
+            // YT ships a "counterpart" (e.g. video version) as a second
+            // adjacent queue-item with the same title+artist. Collapse those
+            // consecutive duplicates so each track shows once. We keep the
+            // real DOM index `i` so __ytmJumpQueue still targets the right row.
+            var key = title + '|' + artist;
+            if (key === lastKey) continue;
+            lastKey = key;
             var selected = item.hasAttribute('selected') ||
                            item.getAttribute('aria-selected') === 'true' ||
                            item.classList.contains('selected');
@@ -635,8 +649,8 @@ enum PlayerBridge {
             out.push({
               index: i,
               videoId: videoId,
-              title: titleEl ? titleEl.textContent.trim() : '',
-              artist: artistEl ? artistEl.textContent.trim() : '',
+              title: title,
+              artist: artist,
               thumbnail: imgEl ? imgEl.src : '',
               isPlaying: selected
             });

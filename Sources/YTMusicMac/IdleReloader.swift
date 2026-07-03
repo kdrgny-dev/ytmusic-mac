@@ -55,7 +55,9 @@ final class IdleReloader {
 
     private func fire() {
         guard !MediaController.shared.nowPlaying.isPlaying else { return }
-        WebViewHolder.shared.reload()
+        // Suppress autoplay so the reload doesn't spontaneously resume the
+        // current /watch track in the background.
+        WebViewHolder.shared.reloadSuppressingAutoplay()
         timer = nil
     }
 }

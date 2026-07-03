@@ -16,45 +16,14 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(miniPlayerAlwaysOnTop, forKey: Keys.miniOnTop) }
     }
 
-    @Published var applyPlayerLayout: Bool {
-        didSet {
-            defaults.set(applyPlayerLayout, forKey: Keys.playerLayout)
-            FeatureBridge.shared.set("playerLayout", enabled: applyPlayerLayout)
-        }
-    }
-
-    @Published var hidePromos: Bool {
-        didSet {
-            defaults.set(hidePromos, forKey: Keys.hidePromos)
-            FeatureBridge.shared.set("hidePromos", enabled: hidePromos)
-        }
-    }
-
-    @Published var zebraStriping: Bool {
-        didSet {
-            defaults.set(zebraStriping, forKey: Keys.zebraStriping)
-            FeatureBridge.shared.set("zebraStriping", enabled: zebraStriping)
-        }
+    @Published var sidebarCollapsed: Bool {
+        didSet { defaults.set(sidebarCollapsed, forKey: Keys.sidebarCollapsed) }
     }
 
     @Published var theme: Theme {
         didSet {
             defaults.set(theme.rawValue, forKey: Keys.theme)
             ThemeBridge.shared.apply(theme)
-        }
-    }
-
-    @Published var compactMode: Bool {
-        didSet {
-            defaults.set(compactMode, forKey: Keys.compactMode)
-            FeatureBridge.shared.set("compactMode", enabled: compactMode)
-        }
-    }
-
-    @Published var stackedHeader: Bool {
-        didSet {
-            defaults.set(stackedHeader, forKey: Keys.stackedHeader)
-            FeatureBridge.shared.set("stackedHeader", enabled: stackedHeader)
         }
     }
 
@@ -67,6 +36,25 @@ final class Preferences: ObservableObject {
 
     @Published var autoReloadOnIdle: Bool {
         didSet { defaults.set(autoReloadOnIdle, forKey: Keys.autoReloadOnIdle) }
+    }
+
+    /// Crossfade: fade the outgoing track's tail out and the incoming
+    /// track's head in over `crossfadeDuration` seconds. True overlapping
+    /// crossfade isn't possible over YT's single audio element, so this is
+    /// a fade-out→fade-in at the boundary (see PlayerBridge `__ytmSetFade`).
+    @Published var crossfadeEnabled: Bool {
+        didSet {
+            defaults.set(crossfadeEnabled, forKey: Keys.crossfadeEnabled)
+            PrefBridge.shared.setCrossfade(enabled: crossfadeEnabled, duration: crossfadeDuration)
+        }
+    }
+
+    /// Seconds of fade at each track boundary (0–12).
+    @Published var crossfadeDuration: Double {
+        didSet {
+            defaults.set(crossfadeDuration, forKey: Keys.crossfadeDuration)
+            PrefBridge.shared.setCrossfade(enabled: crossfadeEnabled, duration: crossfadeDuration)
+        }
     }
 
     /// When true, the WebView's UI is hidden via CSS and a SwiftUI shell
@@ -82,13 +70,11 @@ final class Preferences: ObservableObject {
     private init() {
         self.notifyOnTrackChange = defaults.bool(forKey: Keys.notify)
         self.miniPlayerAlwaysOnTop = defaults.object(forKey: Keys.miniOnTop) as? Bool ?? true
-        self.applyPlayerLayout = defaults.object(forKey: Keys.playerLayout) as? Bool ?? true
-        self.hidePromos = defaults.object(forKey: Keys.hidePromos) as? Bool ?? true
-        self.zebraStriping = defaults.object(forKey: Keys.zebraStriping) as? Bool ?? true
-        self.compactMode = defaults.bool(forKey: Keys.compactMode)
-        self.stackedHeader = defaults.bool(forKey: Keys.stackedHeader)
+        self.sidebarCollapsed = defaults.bool(forKey: Keys.sidebarCollapsed)
         self.alwaysShuffle = defaults.object(forKey: Keys.alwaysShuffle) as? Bool ?? true
         self.autoReloadOnIdle = defaults.object(forKey: Keys.autoReloadOnIdle) as? Bool ?? true
+        self.crossfadeEnabled = defaults.object(forKey: Keys.crossfadeEnabled) as? Bool ?? true
+        self.crossfadeDuration = defaults.object(forKey: Keys.crossfadeDuration) as? Double ?? 5
         self.nativeUIMode = defaults.bool(forKey: Keys.nativeUIMode)
         let raw = defaults.string(forKey: Keys.theme) ?? Theme.default.rawValue
         self.theme = Theme(rawValue: raw) ?? .default
@@ -97,14 +83,12 @@ final class Preferences: ObservableObject {
     private enum Keys {
         static let notify = "pref.notifyOnTrackChange"
         static let miniOnTop = "pref.miniPlayerAlwaysOnTop"
-        static let playerLayout = "pref.applyPlayerLayout"
-        static let hidePromos = "pref.hidePromos"
-        static let zebraStriping = "pref.zebraStriping"
-        static let compactMode = "pref.compactMode"
-        static let stackedHeader = "pref.stackedHeader"
+        static let sidebarCollapsed = "pref.sidebarCollapsed"
         static let theme = "pref.theme"
         static let alwaysShuffle = "pref.alwaysShuffle"
         static let autoReloadOnIdle = "pref.autoReloadOnIdle"
+        static let crossfadeEnabled = "pref.crossfadeEnabled"
+        static let crossfadeDuration = "pref.crossfadeDuration"
         static let nativeUIMode = "pref.nativeUIMode"
     }
 }
@@ -130,6 +114,22 @@ final class PrefBridge {
 
     func setAlwaysShuffle(_ on: Bool) {
         let js = "window.__ytmSetAlwaysShuffle && window.__ytmSetAlwaysShuffle(\(on))"
+        DispatchQueue.main.async {
+            WebViewHolder.shared.webView?.evaluateJavaScript(js, completionHandler: nil)
+        }
+    }
+
+    func setCrossfade(enabled: Bool, duration: Double) {
+        let js = "window.__ytmSetFade && window.__ytmSetFade(\(enabled), \(duration))"
+        DispatchQueue.main.async {
+            WebViewHolder.shared.webView?.evaluateJavaScript(js, completionHandler: nil)
+        }
+    }
+
+    func enterClip() { run("window.__ytmEnterClip && window.__ytmEnterClip()") }
+    func exitClip()  { run("window.__ytmExitClip && window.__ytmExitClip()") }
+
+    private func run(_ js: String) {
         DispatchQueue.main.async {
             WebViewHolder.shared.webView?.evaluateJavaScript(js, completionHandler: nil)
         }

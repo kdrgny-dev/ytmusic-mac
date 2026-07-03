@@ -20,15 +20,30 @@ struct SettingsView: View {
             Section("Playback") {
                 Toggle("Always shuffle (re-enables shuffle whenever YT Music turns it off)",
                        isOn: $prefs.alwaysShuffle)
+                Toggle("Crossfade (fade out the ending track, fade in the next)",
+                       isOn: $prefs.crossfadeEnabled)
+                if prefs.crossfadeEnabled {
+                    HStack {
+                        Text("Fade süresi")
+                        Slider(value: $prefs.crossfadeDuration, in: 1...12, step: 1)
+                        Text("\(Int(prefs.crossfadeDuration)) sn")
+                            .monospacedDigit()
+                            .foregroundColor(.secondary)
+                            .frame(width: 40, alignment: .trailing)
+                    }
+                    Text("Gerçek Spotify usulü üst üste binme YT'nin tek ses motorunda mümkün değil; bunun yerine biten şarkının sonu kısılır, yeni şarkının başı açılır.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
             Section("Performance") {
                 Toggle("Auto-reload after 30 min paused (frees memory; you stay signed in)",
                        isOn: $prefs.autoReloadOnIdle)
             }
-            Section("Experimental") {
-                Toggle("Native UI mode (beta — replaces YT's web UI with a SwiftUI shell)",
+            Section("Native UI") {
+                Toggle("Native UI mode (replaces YT's web UI with a SwiftUI shell)",
                        isOn: $prefs.nativeUIMode)
-                Text("v0 ships with a working player bar + placeholder sidebar/main. Library, search, queue panel come next.")
+                Text("Full native shell: library, home, explore + charts, playlist/album/artist pages, search, queue & lyrics panels, themes. The WebView stays alive underneath as the audio engine.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -41,23 +56,13 @@ struct SettingsView: View {
             Section("Theme") {
                 Picker("Color theme", selection: $prefs.theme) {
                     ForEach(Theme.allCases) { theme in
-                        Text(theme.displayName).tag(theme)
+                        Text("\(theme.displayName)\(theme.variantSuffix)").tag(theme)
                     }
                 }
                 .pickerStyle(.menu)
             }
-            Section("YouTube Music tweaks") {
-                Toggle("Spotify-like player layout (info left, transport center)",
-                       isOn: $prefs.applyPlayerLayout)
-                Toggle("Compact mode (narrow sidebar, tighter rows)",
-                       isOn: $prefs.compactMode)
-                Toggle("Stacked playlist header (Spotify-style)",
-                       isOn: $prefs.stackedHeader)
-                Toggle("Zebra striping on track lists", isOn: $prefs.zebraStriping)
-                Toggle("Hide Premium promo banners", isOn: $prefs.hidePromos)
-            }
             Section {
-                Text("Changes apply immediately. If something looks off, use Controls → Reload.")
+                Text("Theme uygulanır uygulanmaz değişir. Bir şey ters görünürse Controls → Reload.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

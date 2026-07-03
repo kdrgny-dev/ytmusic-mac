@@ -44,6 +44,16 @@ actor InnerTubeClient {
         return try await post("browse", body: body)
     }
 
+    /// `/browse` continuation — loads the next page of a list. The token
+    /// comes from `continuationItemRenderer.continuationEndpoint.
+    /// continuationCommand.token` in the previous response.
+    func continuation(token: String) async throws -> Data {
+        try await post("browse", body: [
+            "context": ["client": clientDict()],
+            "continuation": token
+        ])
+    }
+
     /// `/next` — watchNextResponse for a videoId. Contains the queue,
     /// the lyrics tab pointer, and related tracks. We use it primarily
     /// to grab the lyrics browseId (see WatchNextParser).
@@ -122,6 +132,112 @@ actor InnerTubeClient {
                 "addedVideoId": videoId,
                 "dedupeOption": "DEDUPE_OPTION_SKIP"
             ]]
+        ])
+    }
+
+    /// Create a new playlist. `privacy` is "PUBLIC" | "UNLISTED" | "PRIVATE".
+    /// Optionally seed it with videoIds (e.g. the track the user was adding).
+    /// Returns the new playlist's id ("VL…"/"PL…") on success.
+    @discardableResult
+    func createPlaylist(title: String,
+                        description: String?,
+                        privacy: String,
+                        videoIds: [String]?) async throws -> String? {
+        var body: [String: Any] = [
+            "context": ["client": clientDict()],
+            "title": title,
+            "privacyStatus": privacy
+        ]
+        if let d = description, !d.isEmpty { body["description"] = d }
+        if let v = videoIds, !v.isEmpty { body["videoIds"] = v }
+        let data = try await post("playlist/create", body: body)
+        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        // YT returns the bare id under "playlistId" (sometimes nested).
+        if let id = json?["playlistId"] as? String { return id }
+        return nil
+    }
+
+    /// `/feedback` — applies a feedback token (YT's mechanism for
+    /// add/remove album to library, "not interested", etc.).
+    @discardableResult
+    func sendFeedback(token: String) async throws -> Data {
+        try await post("feedback", body: [
+            "context": ["client": clientDict()],
+            "feedbackTokens": [token]
+        ])
+    }
+
+    /// Remove rows from a playlist. Each item needs its videoId AND the
+    /// playlist-entry setVideoId (from playlistItemData.playlistSetVideoId).
+    @discardableResult
+    func removeFromPlaylist(playlistId: String, items: [(videoId: String, setVideoId: String)]) async throws -> Data {
+        let actions = items.map { item in
+            [
+                "action": "ACTION_REMOVE_VIDEO",
+                "removedVideoId": item.videoId,
+                "setVideoId": item.setVideoId
+            ]
+        }
+        return try await post("browse/edit_playlist", body: [
+            "context": ["client": clientDict()],
+            "playlistId": playlistId,
+            "actions": actions
+        ])
+    }
+
+    /// Move a track within a playlist. `setVideoId` is the moved row; it lands
+    /// right before `successorSetVideoId` (nil → moves to the end).
+    @discardableResult
+    func moveInPlaylist(playlistId: String, setVideoId: String, successorSetVideoId: String?) async throws -> Data {
+        var action: [String: Any] = [
+            "action": "ACTION_MOVE_VIDEO_BEFORE",
+            "setVideoId": setVideoId
+        ]
+        if let s = successorSetVideoId { action["movedSetVideoIdSuccessor"] = s }
+        return try await post("browse/edit_playlist", body: [
+            "context": ["client": clientDict()],
+            "playlistId": playlistId,
+            "actions": [action]
+        ])
+    }
+
+    /// Permanently delete one of the user's own playlists. playlistId is the
+    /// bare "PL…" form (no "VL").
+    @discardableResult
+    func deletePlaylist(playlistId: String) async throws -> Data {
+        try await post("playlist/delete", body: [
+            "context": ["client": clientDict()],
+            "playlistId": playlistId
+        ])
+    }
+
+    /// Rename one of the user's own playlists.
+    @discardableResult
+    func renamePlaylist(playlistId: String, name: String) async throws -> Data {
+        try await post("browse/edit_playlist", body: [
+            "context": ["client": clientDict()],
+            "playlistId": playlistId,
+            "actions": [[
+                "action": "ACTION_SET_PLAYLIST_NAME",
+                "playlistName": name
+            ]]
+        ])
+    }
+
+    /// Add several tracks to a playlist in one edit_playlist call.
+    @discardableResult
+    func addToPlaylist(playlistId: String, videoIds: [String]) async throws -> Data {
+        let actions = videoIds.map { vid in
+            [
+                "action": "ACTION_ADD_VIDEO",
+                "addedVideoId": vid,
+                "dedupeOption": "DEDUPE_OPTION_SKIP"
+            ]
+        }
+        return try await post("browse/edit_playlist", body: [
+            "context": ["client": clientDict()],
+            "playlistId": playlistId,
+            "actions": actions
         ])
     }
 

@@ -82,6 +82,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
+    // MARK: - Dock menu (right-click the Dock icon)
+
+    /// AppKit rebuilds this every time the Dock menu is shown, so we can read
+    /// the live playback state to pick the Play/Pause label and show the
+    /// current track. Items are appended ABOVE AppKit's standard entries
+    /// (Show All Windows / Hide / Quit).
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        let np = MediaController.shared.nowPlaying
+
+        if np.hasTrack {
+            let header = NSMenuItem(title: np.artist.isEmpty ? np.title : "\(np.title) — \(np.artist)",
+                                    action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            menu.addItem(.separator())
+        }
+
+        let playPause = NSMenuItem(title: np.isPlaying ? "Pause" : "Play",
+                                   action: #selector(dockPlayPause), keyEquivalent: "")
+        playPause.target = self
+        menu.addItem(playPause)
+
+        let next = NSMenuItem(title: "Next", action: #selector(dockNext), keyEquivalent: "")
+        next.target = self
+        menu.addItem(next)
+
+        let prev = NSMenuItem(title: "Previous", action: #selector(dockPrev), keyEquivalent: "")
+        prev.target = self
+        menu.addItem(prev)
+
+        if np.hasTrack {
+            menu.addItem(.separator())
+            let like = NSMenuItem(title: np.liked ? "Remove Like" : "Like",
+                                  action: #selector(dockLike), keyEquivalent: "")
+            like.target = self
+            menu.addItem(like)
+        }
+
+        return menu
+    }
+
+    @objc private func dockPlayPause() { MediaController.shared.run("playpause") }
+    @objc private func dockNext()      { MediaController.shared.run("next") }
+    @objc private func dockPrev()      { MediaController.shared.run("prev") }
+    @objc private func dockLike()      { MediaController.shared.run("like") }
+
     /// Builds the app's main menu from scratch. We don't use SwiftUI's
     /// `.commands` modifier because we don't have a SwiftUI window-bearing
     /// scene anymore.
@@ -138,14 +185,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                           key: String(UnicodeScalar(NSRightArrowFunctionKey)!)))
         ctrl.addItem(item("Previous Track", #selector(StatusActions.prev), target: StatusActions.shared,
                           key: String(UnicodeScalar(NSLeftArrowFunctionKey)!)))
+        ctrl.addItem(item("Seek Forward 10s", #selector(StatusActions.seekForward), target: StatusActions.shared,
+                          key: String(UnicodeScalar(NSRightArrowFunctionKey)!), mods: [.option]))
+        ctrl.addItem(item("Seek Back 10s", #selector(StatusActions.seekBackward), target: StatusActions.shared,
+                          key: String(UnicodeScalar(NSLeftArrowFunctionKey)!), mods: [.option]))
         ctrl.addItem(.separator())
-        ctrl.addItem(item("Toggle Fullscreen Player", #selector(StatusActions.togglePlayerPage),
-                          target: StatusActions.shared, key: "f", mods: [.command]))
+        ctrl.addItem(item("Like / Unlike", #selector(StatusActions.like), target: StatusActions.shared,
+                          key: "l", mods: [.command]))
+        ctrl.addItem(item("Shuffle", #selector(StatusActions.shuffle), target: StatusActions.shared,
+                          key: "s", mods: [.command, .control]))
+        ctrl.addItem(item("Repeat", #selector(StatusActions.repeatMode), target: StatusActions.shared,
+                          key: "r", mods: [.command, .control]))
+        ctrl.addItem(.separator())
+        ctrl.addItem(item("Now Playing (Fullscreen)", #selector(AppActions.toggleNowPlaying),
+                          target: AppActions.shared, key: "f", mods: [.command]))
         ctrl.addItem(.separator())
         ctrl.addItem(item("Focus Search", #selector(AppActions.focusSearch), target: AppActions.shared,
                           key: "k", mods: [.command]))
         ctrl.addItem(item("Toggle Queue Panel", #selector(AppActions.toggleQueue), target: AppActions.shared,
                           key: "e", mods: [.command]))
+        ctrl.addItem(item("Toggle Lyrics", #selector(AppActions.toggleLyrics), target: AppActions.shared,
+                          key: "y", mods: [.command]))
         ctrl.addItem(.separator())
         // Cmd+Left / Cmd+Right — Safari's other standard for back/forward,
         // and the only one that survives non-US keyboard layouts (on a
@@ -224,6 +284,12 @@ final class AppActions: NSObject {
     @objc func openSettings() { SettingsWindowController.shared.show() }
     @objc func toggleQueue() {
         Task { @MainActor in NativeShellViewModel.shared.toggleQueue() }
+    }
+    @objc func toggleLyrics() {
+        Task { @MainActor in NativeShellViewModel.shared.toggleLyrics() }
+    }
+    @objc func toggleNowPlaying() {
+        Task { @MainActor in NativeShellViewModel.shared.toggleNowPlaying() }
     }
     @objc func goBack() {
         Task { @MainActor in NativeShellViewModel.shared.goBack() }

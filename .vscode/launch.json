@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:YTMusicMac}",
+            "name": "Debug YTMusicMac",
+            "target": "YTMusicMac",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug YTMusicMac"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:YTMusicMac}",
+            "name": "Release YTMusicMac",
+            "target": "YTMusicMac",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release YTMusicMac"
+        }
+    ]
+}

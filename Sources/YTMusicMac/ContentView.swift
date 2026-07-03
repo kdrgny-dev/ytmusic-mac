@@ -80,6 +80,10 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15"
+        // Keep swipe gestures ON so we still RECEIVE back/forward intents in
+        // Native Mode — but decidePolicyFor reroutes them to the native nav
+        // stack and cancels the WebView's own history nav (see below), so they
+        // never change the playing /watch track.
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = false
         webView.navigationDelegate = self
@@ -124,8 +128,13 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
             }
         case "ytmEvent":
             if let body = message.body as? [String: Any],
-               let name = body["name"] as? String, name == "ended" {
-                Task { @MainActor in NativeShellViewModel.shared.handleTrackEnded() }
+               let name = body["name"] as? String {
+                switch name {
+                case "ended":    Task { @MainActor in NativeShellViewModel.shared.handleTrackEnded() }
+                case "exitClip": Task { @MainActor in NativeShellViewModel.shared.exitClip() }
+                case "clipUnavailable": Task { @MainActor in NativeShellViewModel.shared.clipUnavailable() }
+                default: break
+                }
             }
         default: break
         }
@@ -138,16 +147,35 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         // reflects current toggle state regardless of what the bootstrap
         // script's defaults were.
         let prefs = Preferences.shared
-        FeatureBridge.shared.set("hidePromos", enabled: prefs.hidePromos)
-        FeatureBridge.shared.set("playerLayout", enabled: prefs.applyPlayerLayout)
-        FeatureBridge.shared.set("zebraStriping", enabled: prefs.zebraStriping)
-        FeatureBridge.shared.set("compactMode", enabled: prefs.compactMode)
-        FeatureBridge.shared.set("stackedHeader", enabled: prefs.stackedHeader)
+        // Keep YT's web UI hidden under the SwiftUI shell after reloads when
+        // Native Mode is on (otherwise it would flash back in on navigation).
+        FeatureBridge.shared.set("hideYTApp", enabled: prefs.nativeUIMode)
         PrefBridge.shared.setAlwaysShuffle(prefs.alwaysShuffle)
+        PrefBridge.shared.setCrossfade(enabled: prefs.crossfadeEnabled, duration: prefs.crossfadeDuration)
         ThemeBridge.shared.apply(prefs.theme)
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        // In Native Mode the WebView is a hidden audio engine. A back/forward
+        // history navigation (swipe gesture) would load the previous/next
+        // /watch page and change the playing track. Instead, reroute it to the
+        // native nav stack (direction inferred from the back/forward list) and
+        // cancel the WebView's own history nav. (Our own loads are .other /
+        // .linkActivated, never .backForward, so this only catches history nav.)
+        if Preferences.shared.nativeUIMode,
+           navigationAction.navigationType == .backForward {
+            let targetURL = navigationAction.request.url
+            let forwardURL = webView.backForwardList.forwardItem?.url
+            Task { @MainActor in
+                if let t = targetURL, t == forwardURL {
+                    NativeShellViewModel.shared.goForward()
+                } else {
+                    NativeShellViewModel.shared.goBack()
+                }
+            }
+            decisionHandler(.cancel)
+            return
+        }
         if let url = navigationAction.request.url,
            let host = url.host,
            navigationAction.navigationType == .linkActivated,
@@ -189,6 +217,20 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
 
     func reload() {
         _webView?.reload()
+    }
+
+    /// Reload but suppress YT's autoplay-on-load for a short window. Used by
+    /// the idle reloader so a 30-min-paused session doesn't spontaneously
+    /// start playing the current /watch track in the background after the
+    /// page reloads. The flag is read by the injected bridge (it persists in
+    /// localStorage across the reload) which pauses any autoplay until it
+    /// expires. Manual reloads don't set the flag, so they behave normally.
+    func reloadSuppressingAutoplay(seconds: Double = 12) {
+        let untilMs = Int(seconds * 1000)
+        let js = "try{localStorage.setItem('__ytmSuppressAutoplay', String(Date.now()+\(untilMs)))}catch(e){}"
+        _webView?.evaluateJavaScript(js) { [weak self] _, _ in
+            self?._webView?.reload()
+        }
     }
 
     func clearAllData() {
