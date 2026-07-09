@@ -13,6 +13,7 @@ struct NativeShellView: View {
     @EnvironmentObject private var media: MediaController
     @StateObject private var vm = NativeShellViewModel.shared
     @ObservedObject private var prefs = Preferences.shared
+    @ObservedObject private var updater = UpdateChecker.shared
 
     // Surface tokens, driven by the selected theme so picking a theme
     // recolors the native shell live (not just the hidden WebView).
@@ -25,6 +26,14 @@ struct NativeShellView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
+                // A broken app outranks a nicer one: errors win the bar.
+                if let banner = vm.banner {
+                    BannerBar(banner: banner, vm: vm)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                } else if let update = updater.available {
+                    UpdateBar(update: update)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
                 HStack(spacing: 0) {
                     Sidebar(bg: bgSidebar, stroke: strokeColor, vm: vm)
                     Divider().background(strokeColor)
@@ -121,6 +130,7 @@ struct NativeShellView: View {
         .animation(.easeInOut(duration: 0.18), value: vm.deleteTarget)
         .animation(.easeInOut(duration: 0.18), value: prefs.sidebarCollapsed)
         .animation(.easeInOut(duration: 0.2), value: vm.toast)
+        .animation(.easeInOut(duration: 0.2), value: vm.banner)
         .onAppear {
             vm.loadPlaylistsIfNeeded()
             // Land users on Home by default so first impression is content,
@@ -128,6 +138,88 @@ struct NativeShellView: View {
             vm.goHome()
             vm.loadLibraryIfNeeded()
         }
+    }
+}
+
+// MARK: - Failure banner
+
+/// App-wide breakage (no network, dead session) gets a bar across the top.
+/// Page-level "couldn't load this" stays inline where it happened.
+private struct BannerBar: View {
+    let banner: NativeShellViewModel.Banner
+    @ObservedObject var vm: NativeShellViewModel
+
+    private var tint: Color {
+        banner == .offline ? .orange : .red
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: banner == .offline ? "wifi.slash" : "person.crop.circle.badge.exclamationmark")
+                .font(.system(size: 12, weight: .semibold))
+            Text(banner.message)
+                .font(.system(size: 12, weight: .medium))
+                .lineLimit(1)
+            Spacer(minLength: 12)
+            Button(action: { vm.resolveBanner() }) {
+                Text(banner.actionTitle)
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.white.opacity(0.22)))
+            }
+            .buttonStyle(.plain)
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(tint.opacity(0.9))
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+/// New build on the download site. The app is ad-hoc signed, so it can't
+/// swap itself out — we open the DMG and let the user drag it over.
+private struct UpdateBar: View {
+    let update: UpdateChecker.Update
+    @ObservedObject private var prefs = Preferences.shared
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+            Text("Yeni sürüm var: v\(update.version)")
+                .font(.system(size: 12, weight: .semibold))
+            if let notes = update.notes {
+                Text(notes)
+                    .font(.system(size: 12))
+                    .opacity(0.85)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 12)
+            Button(action: { NSWorkspace.shared.open(update.downloadURL) }) {
+                Text("İndir")
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.white.opacity(0.22)))
+            }
+            .buttonStyle(.plain)
+            Button(action: { UpdateChecker.shared.skip(update) }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .opacity(0.7)
+            }
+            .buttonStyle(.plain)
+            .help("Bu sürümü atla")
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(prefs.theme.accentColor.opacity(0.92))
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -193,7 +285,7 @@ private struct SearchOverlay: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14))
                 .foregroundColor(.primary.opacity(0.5))
-            TextField("Search songs, artists, albums, playlists…", text: $vm.searchQuery)
+            TextField("Şarkı, sanatçı, albüm, çalma listesi ara…", text: $vm.searchQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 16))
                 .foregroundColor(.primary)
@@ -235,7 +327,7 @@ private struct SearchOverlay: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 28, weight: .light))
                         .foregroundColor(.primary.opacity(0.25))
-                    Text("Type to search \(vm.searchTab.label.lowercased())")
+                    Text("\(vm.searchTab.label.lowercased()) aramak için yaz")
                         .font(.system(size: 12))
                         .foregroundColor(.primary.opacity(0.4))
                 }
@@ -244,15 +336,21 @@ private struct SearchOverlay: View {
                 recentSearches
             }
         } else if let msg = vm.searchError, vm.searchResults.isEmpty, !vm.searchLoading {
-            VStack(spacing: 4) {
-                Text(msg)
-                    .font(.system(size: 12))
-                    .foregroundColor(.primary.opacity(0.5))
+            ScrollView {
+                VStack(spacing: 4) {
+                    if !vm.searchSuggestions.isEmpty { suggestions }
+                    Text(msg)
+                        .font(.system(size: 12))
+                        .foregroundColor(.primary.opacity(0.5))
+                        .padding(.top, 12)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 6)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
+                    if !vm.searchSuggestions.isEmpty { suggestions }
                     ForEach(vm.searchResults) { r in
                         Button(action: { vm.openSearchResult(r) }) {
                             SearchResultRow(result: r,
@@ -265,6 +363,43 @@ private struct SearchOverlay: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 6)
             }
+        }
+    }
+
+    /// YT's own autocomplete, above the results. Clicking one replaces the
+    /// query, which re-runs the search through the normal debounce path.
+    private var suggestions: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("ÖNERİLER")
+                .font(.system(size: 10, weight: .semibold))
+                .tracking(0.6)
+                .foregroundColor(.primary.opacity(0.5))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+            ForEach(vm.searchSuggestions, id: \.self) { s in
+                Button(action: { vm.applyRecentSearch(s); focused = true }) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 12))
+                            .foregroundColor(.primary.opacity(0.4))
+                        Text(s)
+                            .font(.system(size: 13))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        Image(systemName: "arrow.up.left")
+                            .font(.system(size: 10))
+                            .foregroundColor(.primary.opacity(0.3))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Divider()
+                .background(Color.primary.opacity(0.1))
+                .padding(.vertical, 6)
         }
     }
 
@@ -379,6 +514,7 @@ private struct Sidebar: View {
     let stroke: Color
     @ObservedObject var vm: NativeShellViewModel
     @ObservedObject private var prefs = Preferences.shared
+    @State private var draggedPlaylistId: String?
 
     private struct TopItem: Identifiable {
         let id: String
@@ -389,9 +525,10 @@ private struct Sidebar: View {
 
     private var topItems: [TopItem] {
         [
-            .init(id: "home",    icon: "house.fill",            label: "Home",    action: { vm.goHome() }),
-            .init(id: "explore", icon: "safari",                label: "Explore", action: { vm.goExplore() }),
-            .init(id: "search",  icon: "magnifyingglass",       label: "Search",  action: { vm.toggleSearch() })
+            .init(id: "home",    icon: "house.fill",            label: "Ana sayfa",    action: { vm.goHome() }),
+            .init(id: "explore", icon: "safari",                label: "Keşfet", action: { vm.goExplore() }),
+            .init(id: "search",  icon: "magnifyingglass",       label: "Ara",  action: { vm.toggleSearch() }),
+            .init(id: "history", icon: "clock.arrow.circlepath", label: "Geçmiş", action: { vm.goHistory() })
         ]
     }
 
@@ -419,7 +556,7 @@ private struct Sidebar: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
-                    sectionHeader("Browse")
+                    sectionHeader("Keşfet")
                     ForEach(topItems) { item in
                         Button(action: item.action) {
                             sidebarRow(icon: item.icon, label: item.label, active: isTopActive(item.id))
@@ -428,7 +565,7 @@ private struct Sidebar: View {
                     }
 
                     HStack {
-                        sectionHeader("Your playlists")
+                        sectionHeader("Çalma listelerin")
                         Spacer()
                         Button(action: { vm.reload() }) {
                             Image(systemName: "arrow.clockwise")
@@ -487,15 +624,28 @@ private struct Sidebar: View {
                         .help(item.label)
                     }
                     Divider().background(stroke).padding(.horizontal, 14)
-                    ForEach(vm.playlists) { p in
+                    ForEach(vm.orderedPlaylists) { p in
                         Button(action: { vm.openPlaylist(p) }) {
                             thumbnail(for: p)
                                 .frame(width: 44, height: 44)
                                 .clipShape(RoundedRectangle(cornerRadius: 5))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .strokeBorder(prefs.theme.accentColor,
+                                                      lineWidth: vm.isNowPlayingCollection(p) ? 2 : 0)
+                                )
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .help(p.title)
+                        .opacity(draggedPlaylistId == p.id ? 0.4 : 1)
+                        .onDrag {
+                            draggedPlaylistId = p.id
+                            return NSItemProvider(object: p.id as NSString)
+                        }
+                        .onDrop(of: [UTType.text],
+                                delegate: PlaylistDropDelegate(targetId: p.id, vm: vm,
+                                                               draggedId: $draggedPlaylistId))
+                        .help(vm.isNowPlayingCollection(p) ? "\(p.title) — şu an çalıyor" : p.title)
                         .contextMenu { playlistContextMenu(p) }
                     }
                 }
@@ -536,7 +686,7 @@ private struct Sidebar: View {
         if vm.loadingPlaylists && vm.playlists.isEmpty {
             HStack {
                 ProgressView().controlSize(.small)
-                Text("Loading…")
+                Text("Yükleniyor…")
                     .font(.system(size: 12))
                     .foregroundColor(.primary.opacity(0.5))
             }
@@ -550,11 +700,19 @@ private struct Sidebar: View {
                 .padding(.vertical, 6)
                 .lineLimit(3)
         } else {
-            ForEach(vm.playlists) { p in
+            ForEach(vm.orderedPlaylists) { p in
                 Button(action: { vm.openPlaylist(p) }) {
                     playlistRow(p, active: isPlaylistActive(p))
                 }
                 .buttonStyle(.plain)
+                .opacity(draggedPlaylistId == p.id ? 0.4 : 1)
+                .onDrag {
+                    draggedPlaylistId = p.id
+                    return NSItemProvider(object: p.id as NSString)
+                }
+                .onDrop(of: [UTType.text],
+                        delegate: PlaylistDropDelegate(targetId: p.id, vm: vm,
+                                                       draggedId: $draggedPlaylistId))
                 .contextMenu { playlistContextMenu(p) }
             }
         }
@@ -574,6 +732,31 @@ private struct Sidebar: View {
         }
         Divider()
         Button { vm.copyPlaylistLink(p) } label: { Label("Bağlantıyı kopyala", systemImage: "link") }
+        if vm.hasCustomPlaylistOrder {
+            Button { vm.resetPlaylistOrder() } label: {
+                Label("Sıralamayı sıfırla", systemImage: "arrow.up.arrow.down")
+            }
+        }
+    }
+
+    /// Sidebar reordering. Mirrors the own-queue drag: reorder live as the
+    /// row is dragged over a neighbour, commit on drop.
+    private struct PlaylistDropDelegate: DropDelegate {
+        let targetId: String
+        let vm: NativeShellViewModel
+        @Binding var draggedId: String?
+
+        func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+        func dropEntered(info: DropInfo) {
+            guard let dragged = draggedId, dragged != targetId else { return }
+            Task { @MainActor in vm.movePlaylist(fromId: dragged, toId: targetId) }
+        }
+
+        func performDrop(info: DropInfo) -> Bool {
+            draggedId = nil
+            return true
+        }
     }
 
     /// Which top item (if any) reflects the current view, so we can
@@ -582,6 +765,7 @@ private struct Sidebar: View {
         switch id {
         case "home":    return vm.mainSection == .home
         case "explore": return vm.mainSection == .explore
+        case "history": return vm.mainSection == .history
         case "search":  return vm.isSearchVisible
         default:        return false
         }
@@ -622,16 +806,24 @@ private struct Sidebar: View {
     }
 
     private func playlistRow(_ p: NativeShellViewModel.PlaylistSummary, active: Bool = false, circular: Bool = false) -> some View {
-        HStack(spacing: 10) {
+        let playing = vm.isNowPlayingCollection(p)
+        return HStack(spacing: 10) {
             thumbnail(for: p)
                 .frame(width: 28, height: 28)
                 .clipShape(circular ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: 3)))
             Text(p.title)
-                .font(.system(size: 12, weight: active ? .semibold : .regular))
-                .foregroundColor(active ? .primary : .primary.opacity(0.85))
+                .font(.system(size: 12, weight: active || playing ? .semibold : .regular))
+                .foregroundColor(playing ? prefs.theme.accentColor
+                                         : (active ? .primary : .primary.opacity(0.85)))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
+            if playing {
+                Image(systemName: "speaker.wave.2.fill")
+                    .font(.system(size: 10))
+                    .foregroundColor(prefs.theme.accentColor)
+                    .help("Şu an bu listeden çalıyor")
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
@@ -911,6 +1103,8 @@ private struct MainContent: View {
                 HomeView(vm: vm)
             case .explore:
                 ExploreView(vm: vm)
+            case .history:
+                HistoryView(vm: vm)
             case .playlist(let p):
                 PlaylistDetailView(playlist: p, vm: vm)
             case .category:
@@ -935,10 +1129,10 @@ private struct MainContent: View {
             Image(systemName: "music.note.list")
                 .font(.system(size: 36, weight: .light))
                 .foregroundColor(.primary.opacity(0.35))
-            Text("Pick a playlist or open Home")
+            Text("Bir çalma listesi seç ya da Ana sayfayı aç")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.primary.opacity(0.85))
-            Text("Sidebar → Home for recommendations.")
+            Text("Öneriler için Kenar çubuğu → Ana sayfa.")
                 .font(.system(size: 12))
                 .foregroundColor(.primary.opacity(0.45))
         }
@@ -1121,12 +1315,73 @@ private struct ArtistView: View {
     }
 }
 
+// MARK: - History view
+
+private struct HistoryView: View {
+    @ObservedObject var vm: NativeShellViewModel
+
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 24) {
+                header
+                if vm.historyLoading && vm.historySections.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                } else if let msg = vm.historyError, vm.historySections.isEmpty {
+                    Text(msg)
+                        .font(.system(size: 13))
+                        .foregroundColor(.primary.opacity(0.5))
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                } else {
+                    ForEach(vm.historySections) { ChartSectionView(section: $0, vm: vm) }
+                    Spacer(minLength: 40)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("KİTAPLIK")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundColor(.primary.opacity(0.55))
+                Text("Geçmiş")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.primary)
+                Text("Son dinlediklerin, YT Music'in gün gruplarıyla")
+                    .font(.system(size: 12))
+                    .foregroundColor(.primary.opacity(0.5))
+            }
+            Spacer()
+            Button(action: { vm.reloadHistory() }) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 12))
+                    .foregroundColor(.primary.opacity(0.6))
+                    .frame(width: 30, height: 30)
+                    .background(Color.primary.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help("Geçmişi yenile")
+        }
+    }
+}
+
 // MARK: - Category (mood/genre) view
 
 private struct CategoryView: View {
     @ObservedObject var vm: NativeShellViewModel
+    @ObservedObject private var prefs = Preferences.shared
 
-    private let columns = [GridItem(.adaptive(minimum: 160), spacing: 16)]
+    private var layout: CategoryLayout { prefs.categoryLayout }
+
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: layout.coverSize), spacing: layout == .largeGrid ? 16 : 12)]
+    }
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
@@ -1140,13 +1395,23 @@ private struct CategoryView: View {
                         .font(.system(size: 13))
                         .foregroundColor(.primary.opacity(0.5))
                         .frame(maxWidth: .infinity, minHeight: 240)
-                } else {
-                    LazyVGrid(columns: columns, spacing: 18) {
-                        ForEach(vm.categoryPlaylists) { p in
-                            Button(action: { vm.openPlaylist(p) }) {
-                                CategoryPlaylistCard(playlist: p)
+                } else if layout == .list {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(vm.categoryPlaylists.enumerated()), id: \.element.id) { idx, p in
+                            entry(p) {
+                                CategoryPlaylistRow(playlist: p, saved: vm.isPlaylistSaved(p),
+                                                    zebra: idx.isMultiple(of: 2))
                             }
-                            .buttonStyle(.plain)
+                        }
+                    }
+                    Spacer(minLength: 40)
+                } else {
+                    LazyVGrid(columns: columns, spacing: layout == .largeGrid ? 18 : 14) {
+                        ForEach(vm.categoryPlaylists) { p in
+                            entry(p) {
+                                CategoryPlaylistCard(playlist: p, saved: vm.isPlaylistSaved(p),
+                                                     size: layout.coverSize)
+                            }
                         }
                     }
                     Spacer(minLength: 40)
@@ -1157,51 +1422,208 @@ private struct CategoryView: View {
         }
     }
 
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("KATEGORİ")
-                .font(.system(size: 11, weight: .semibold))
-                .tracking(0.8)
-                .foregroundColor(.primary.opacity(0.55))
-            Text(vm.categoryTitle)
-                .font(.system(size: 28, weight: .bold))
-                .foregroundColor(.primary)
-            if !vm.categoryPlaylists.isEmpty {
-                Text("\(vm.categoryPlaylists.count) playlist")
-                    .font(.system(size: 12))
-                    .foregroundColor(.primary.opacity(0.5))
+    /// One playlist, whatever its shape: tap opens it, right-click saves it.
+    private func entry<Content: View>(_ p: NativeShellViewModel.PlaylistSummary,
+                                      @ViewBuilder content: () -> Content) -> some View {
+        Button(action: { vm.openPlaylist(p) }) { content() }
+            .buttonStyle(.plain)
+            .contextMenu {
+                Button { vm.openPlaylist(p) } label: {
+                    Label("Aç", systemImage: "arrow.right.circle")
+                }
+                Button { vm.openPlaylist(p, autoplay: true) } label: {
+                    Label("Oynat", systemImage: "play.fill")
+                }
+                Divider()
+                if vm.isPlaylistSaved(p) {
+                    Button { vm.removePlaylistFromLibrary(p) } label: {
+                        Label("Kitaplıktan çıkar", systemImage: "minus.circle")
+                    }
+                } else {
+                    Button { vm.savePlaylistToLibrary(p) } label: {
+                        Label("Kitaplığa kaydet", systemImage: "plus.circle")
+                    }
+                }
+                Divider()
+                Button { vm.copyPlaylistLink(p) } label: {
+                    Label("Bağlantıyı kopyala", systemImage: "link")
+                }
             }
+    }
+
+    private var layoutPicker: some View {
+        HStack(spacing: 2) {
+            ForEach(CategoryLayout.allCases) { mode in
+                Button(action: { prefs.categoryLayout = mode }) {
+                    Image(systemName: mode.icon)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(mode == layout ? .primary : .primary.opacity(0.5))
+                        .frame(width: 28, height: 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(mode == layout ? Color.primary.opacity(0.12) : .clear)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(mode.label)
+            }
+        }
+        .padding(3)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        )
+    }
+
+    private var header: some View {
+        HStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("KATEGORİ")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundColor(.primary.opacity(0.55))
+                Text(vm.categoryTitle)
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(.primary)
+                if !vm.categoryPlaylists.isEmpty {
+                    Text("\(vm.categoryPlaylists.count) çalma listesi")
+                        .font(.system(size: 12))
+                        .foregroundColor(.primary.opacity(0.5))
+                }
+            }
+            Spacer()
+            layoutPicker
         }
     }
 }
 
 private struct CategoryPlaylistCard: View {
     let playlist: NativeShellViewModel.PlaylistSummary
+    /// Already in the user's library — badged so a category grid tells you
+    /// what you've saved without opening every card.
+    let saved: Bool
+    let size: CGFloat
     @State private var hovered: Bool = false
 
+    private var compact: Bool { size < 140 }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            cover
-                .frame(width: 160, height: 160)
+        VStack(alignment: .leading, spacing: compact ? 6 : 8) {
+            PlaylistCover(url: playlist.thumbnailURL)
+                .frame(width: size, height: size)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(alignment: .bottomLeading) {
+                    if let n = playlist.trackCount { CountBadge(count: n, compact: compact) }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if saved { SavedBadge(compact: compact) }
+                }
                 .scaleEffect(hovered ? 1.03 : 1.0)
                 .shadow(color: .black.opacity(hovered ? 0.5 : 0), radius: 12, y: 6)
                 .animation(.easeOut(duration: 0.15), value: hovered)
             Text(playlist.title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: compact ? 11 : 13, weight: .semibold))
                 .foregroundColor(.primary)
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
-                .frame(width: 160, alignment: .leading)
+                .frame(width: size, alignment: .leading)
         }
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
     }
+}
+
+/// Row form of the same card — thumbnail, title, YT's subtitle, count.
+private struct CategoryPlaylistRow: View {
+    let playlist: NativeShellViewModel.PlaylistSummary
+    let saved: Bool
+    let zebra: Bool
+    @State private var hovered: Bool = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            PlaylistCover(url: playlist.thumbnailURL)
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(playlist.title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                if let sub = playlist.subtitle {
+                    Text(sub)
+                        .font(.system(size: 11))
+                        .foregroundColor(.primary.opacity(0.5))
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 12)
+            if saved {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 13))
+                    .foregroundColor(.accentColor)
+                    .help("Kitaplığında kayıtlı")
+            }
+            if let n = playlist.trackCount {
+                Text("\(n) şarkı")
+                    .font(.system(size: 11))
+                    .foregroundColor(.primary.opacity(0.5))
+                    .frame(width: 70, alignment: .trailing)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(hovered ? Color.primary.opacity(0.08)
+                              : (zebra ? Color.primary.opacity(0.03) : .clear))
+        )
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+    }
+}
+
+private struct SavedBadge: View {
+    let compact: Bool
+
+    var body: some View {
+        Image(systemName: "checkmark")
+            .font(.system(size: compact ? 8 : 10, weight: .bold))
+            .foregroundColor(.white)
+            .frame(width: compact ? 17 : 22, height: compact ? 17 : 22)
+            .background(Circle().fill(Color.accentColor))
+            .overlay(Circle().stroke(Color.black.opacity(0.35), lineWidth: 1))
+            .padding(compact ? 5 : 8)
+            .help("Kitaplığında kayıtlı")
+    }
+}
+
+/// Track count sits ON the artwork, so it needs its own scrim — YT covers
+/// range from near-white to near-black.
+private struct CountBadge: View {
+    let count: Int
+    let compact: Bool
+
+    var body: some View {
+        Text(compact ? "\(count)" : "\(count) şarkı")
+            .font(.system(size: compact ? 9 : 10, weight: .semibold))
+            .foregroundColor(.white)
+            .padding(.horizontal, compact ? 5 : 7)
+            .padding(.vertical, compact ? 2 : 3)
+            .background(Capsule().fill(Color.black.opacity(0.65)))
+            .padding(compact ? 5 : 7)
+            .help("\(count) şarkı")
+    }
+}
+
+private struct PlaylistCover: View {
+    let url: String?
 
     @ViewBuilder
-    private var cover: some View {
-        if let s = playlist.thumbnailURL, let url = URL(string: s) {
-            CachedAsyncImage(url: url) { phase in
+    var body: some View {
+        if let s = url, let u = URL(string: s) {
+            CachedAsyncImage(url: u) { phase in
                 switch phase {
                 case .success(let img): img.resizable().aspectRatio(contentMode: .fill)
                 default: Color.primary.opacity(0.06)
@@ -1293,7 +1715,7 @@ private struct HomeView: View {
             Text(msg)
                 .font(.system(size: 13))
                 .foregroundColor(.primary.opacity(0.6))
-            Button("Retry") { vm.reloadHome() }
+            Button("Yeniden dene") { vm.reloadHome() }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
@@ -1390,7 +1812,7 @@ private struct ExploreView: View {
             Text(msg)
                 .font(.system(size: 13))
                 .foregroundColor(.primary.opacity(0.6))
-            Button("Retry") { vm.reloadExplore() }
+            Button("Yeniden dene") { vm.reloadExplore() }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
@@ -1413,7 +1835,9 @@ private struct ChartSectionView: View {
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.primary)
             VStack(spacing: 0) {
-                ForEach(Array(section.tracks.enumerated()), id: \.element.id) { idx, track in
+                // Keyed by position, not videoId — history legitimately
+                // repeats the same track within a day.
+                ForEach(Array(section.tracks.enumerated()), id: \.offset) { idx, track in
                     Button(action: { vm.playTrack(track) }) {
                         TrackRow(index: idx + 1,
                                  track: track,
@@ -2133,7 +2557,7 @@ private struct PlaylistDetailView: View {
             HStack(spacing: 6) {
                 Image(systemName: vm.isAlbumSaved ? "checkmark.circle.fill" : "plus.circle.fill")
                     .font(.system(size: 13))
-                Text(vm.isAlbumSaved ? "Saved" : "Save")
+                Text(vm.isAlbumSaved ? "Kaydedildi" : "Kaydet")
                     .font(.system(size: 12, weight: .semibold))
             }
             .foregroundColor(.white)
@@ -2191,7 +2615,7 @@ private struct PlaylistDetailView: View {
             HStack(spacing: 6) {
                 Image(systemName: saved ? "checkmark.circle.fill" : "plus.circle.fill")
                     .font(.system(size: 13))
-                Text(saved ? "Saved" : "Save")
+                Text(saved ? "Kaydedildi" : "Kaydet")
                     .font(.system(size: 12, weight: .semibold))
             }
             .foregroundColor(.primary)
@@ -2207,7 +2631,7 @@ private struct PlaylistDetailView: View {
             )
         }
         .buttonStyle(.plain)
-        .help(saved ? "Remove from your library" : "Save to your library")
+        .help(saved ? "Kitaplığından çıkar" : "Kitaplığına kaydet")
     }
 
     @ViewBuilder
@@ -2231,7 +2655,7 @@ private struct PlaylistDetailView: View {
         if vm.loadingTracks && vm.tracks.isEmpty {
             VStack {
                 ProgressView()
-                Text("Loading tracks…")
+                Text("Şarkılar yükleniyor…")
                     .font(.system(size: 12))
                     .foregroundColor(.primary.opacity(0.5))
                     .padding(.top, 8)
@@ -2759,7 +3183,7 @@ private struct PlayerBar: View {
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
-        .help("Toggle Queue (⌘E)")
+        .help("Kuyruğu aç/kapat (⌘E)")
     }
 
     private func format(_ seconds: Double) -> String {
@@ -2794,7 +3218,7 @@ private struct PlayerBar: View {
         }
         .onHover { artworkHovered = $0 }
         .onTapGesture { if media.nowPlaying.hasTrack { vm.toggleNowPlaying() } }
-        .help("Now Playing (⌘F)")
+        .help("Şimdi çalıyor (⌘F)")
     }
 }
 
@@ -2918,9 +3342,9 @@ private struct ThemePanel: View {
             Divider().background(Color.primary.opacity(0.08))
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
-                    sectionLabel("Light")
+                    sectionLabel("Açık")
                     ForEach(Theme.allCases.filter { !$0.isDark }) { row($0) }
-                    sectionLabel("Dark")
+                    sectionLabel("Koyu")
                     ForEach(Theme.allCases.filter { $0.isDark }) { row($0) }
                 }
                 .padding(10)
@@ -3205,7 +3629,7 @@ private struct QueuePanel: View {
 
     private var header: some View {
         HStack {
-            Text("Queue")
+            Text("Kuyruk")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.primary)
             Spacer()
@@ -3233,10 +3657,10 @@ private struct QueuePanel: View {
                 Image(systemName: "music.note.list")
                     .font(.system(size: 24, weight: .light))
                     .foregroundColor(.primary.opacity(0.3))
-                Text("Queue is empty")
+                Text("Kuyruk boş")
                     .font(.system(size: 12))
                     .foregroundColor(.primary.opacity(0.45))
-                Text("Right-click a track → Add to queue.")
+                Text("Bir şarkıya sağ tıkla → Kuyruğa ekle.")
                     .font(.system(size: 10))
                     .foregroundColor(.primary.opacity(0.3))
             }
@@ -3259,8 +3683,8 @@ private struct QueuePanel: View {
                             .onDrop(of: [UTType.text],
                                     delegate: OwnQueueDropDelegate(targetId: item.id, vm: vm, draggedId: $draggedId))
                             .contextMenu {
-                                Button("Play now") { vm.playOwnQueueItem(item) }
-                                Button("Remove") { vm.removeFromOwnQueue(item) }
+                                Button("Şimdi çal") { vm.playOwnQueueItem(item) }
+                                Button("Kaldır") { vm.removeFromOwnQueue(item) }
                             }
                         }
                         Divider().background(Color.primary.opacity(0.1))
@@ -3282,13 +3706,13 @@ private struct QueuePanel: View {
 
     private var ownQueueHeader: some View {
         HStack {
-            Text("UP NEXT")
+            Text("SIRADAKİLER")
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(0.6)
                 .foregroundColor(.primary.opacity(0.5))
             Spacer()
             Button(action: { vm.clearOwnQueue() }) {
-                Text("Clear")
+                Text("Temizle")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(.primary.opacity(0.55))
             }
@@ -3301,15 +3725,15 @@ private struct QueuePanel: View {
 
     @ViewBuilder
     private func queueContextMenu(for item: NativeShellViewModel.QueueItem) -> some View {
-        Button("Jump to this track") { vm.jumpToQueueIndex(item.id) }
+        Button("Bu parçaya atla") { vm.jumpToQueueIndex(item.id) }
         if let vid = item.videoId {
             Divider()
-            Button("Like") { vm.likeTrack(videoId: vid, title: item.title) }
-            Button("Dislike") { vm.dislikeTrack(videoId: vid, title: item.title) }
+            Button("Beğen") { vm.likeTrack(videoId: vid, title: item.title) }
+            Button("Beğenme") { vm.dislikeTrack(videoId: vid, title: item.title) }
             Divider()
-            Menu("Save to playlist") {
+            Menu("Çalma listesine ekle") {
                 if vm.playlists.isEmpty {
-                    Text("Loading playlists…")
+                    Text("Listeler yükleniyor…")
                 } else {
                     ForEach(vm.playlists) { p in
                         Button(p.title) {
@@ -3322,7 +3746,7 @@ private struct QueuePanel: View {
                 }
             }
             Divider()
-            Button("Open in browser") { vm.openInBrowser(videoId: vid) }
+            Button("Tarayıcıda aç") { vm.openInBrowser(videoId: vid) }
         }
     }
 }

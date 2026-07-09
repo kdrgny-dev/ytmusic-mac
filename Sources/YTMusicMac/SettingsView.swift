@@ -5,8 +5,8 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
-            generalTab.tabItem { Label("General", systemImage: "gear") }
-            interfaceTab.tabItem { Label("Interface", systemImage: "rectangle.3.group") }
+            generalTab.tabItem { Label("Genel", systemImage: "gear") }
+            interfaceTab.tabItem { Label("Arayüz", systemImage: "rectangle.3.group") }
         }
         .frame(width: 520, height: 440)
     }
@@ -14,13 +14,13 @@ struct SettingsView: View {
     private var generalTab: some View {
         Form {
             Section {
-                Toggle("Notify on track change", isOn: $prefs.notifyOnTrackChange)
-                Toggle("Mini player always on top", isOn: $prefs.miniPlayerAlwaysOnTop)
+                Toggle("Parça değişince bildir", isOn: $prefs.notifyOnTrackChange)
+                Toggle("Mini oynatıcı her zaman üstte", isOn: $prefs.miniPlayerAlwaysOnTop)
             }
-            Section("Playback") {
-                Toggle("Always shuffle (re-enables shuffle whenever YT Music turns it off)",
+            Section("Oynatma") {
+                Toggle("Her zaman karıştır (YT Music kapattığında yeniden açar)",
                        isOn: $prefs.alwaysShuffle)
-                Toggle("Crossfade (fade out the ending track, fade in the next)",
+                Toggle("Çapraz geçiş (biten şarkıyı kıs, sonrakini aç)",
                        isOn: $prefs.crossfadeEnabled)
                 if prefs.crossfadeEnabled {
                     HStack {
@@ -36,14 +36,14 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
             }
-            Section("Performance") {
-                Toggle("Auto-reload after 30 min paused (frees memory; you stay signed in)",
+            Section("Performans") {
+                Toggle("30 dk duraklatınca yeniden yükle (belleği boşaltır; oturumun açık kalır)",
                        isOn: $prefs.autoReloadOnIdle)
             }
-            Section("Native UI") {
-                Toggle("Native UI mode (replaces YT's web UI with a SwiftUI shell)",
+            Section("Yerel arayüz") {
+                Toggle("Yerel arayüz modu (YT'nin web arayüzünü SwiftUI kabuğuyla değiştirir)",
                        isOn: $prefs.nativeUIMode)
-                Text("Full native shell: library, home, explore + charts, playlist/album/artist pages, search, queue & lyrics panels, themes. The WebView stays alive underneath as the audio engine.")
+                Text("Tam yerel kabuk: kitaplık, ana sayfa, keşfet + listeler, çalma listesi/albüm/sanatçı sayfaları, arama, kuyruk ve şarkı sözü panelleri, temalar. WebView altta ses motoru olarak çalışmaya devam eder.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -53,8 +53,8 @@ struct SettingsView: View {
 
     private var interfaceTab: some View {
         Form {
-            Section("Theme") {
-                Picker("Color theme", selection: $prefs.theme) {
+            Section("Tema") {
+                Picker("Renk teması", selection: $prefs.theme) {
                     ForEach(Theme.allCases) { theme in
                         Text("\(theme.displayName)\(theme.variantSuffix)").tag(theme)
                     }
@@ -62,7 +62,7 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
             }
             Section {
-                Text("Theme uygulanır uygulanmaz değişir. Bir şey ters görünürse Controls → Reload.")
+                Text("Tema anında uygulanır. Bir şey ters görünürse Denetimler → Yeniden Yükle.")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

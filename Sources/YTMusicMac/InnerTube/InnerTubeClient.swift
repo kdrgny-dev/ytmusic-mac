@@ -57,11 +57,15 @@ actor InnerTubeClient {
     /// `/next` — watchNextResponse for a videoId. Contains the queue,
     /// the lyrics tab pointer, and related tracks. We use it primarily
     /// to grab the lyrics browseId (see WatchNextParser).
-    func next(videoId: String) async throws -> Data {
-        try await post("next", body: [
+    /// Pass `playlistId` to get the queue for that list rather than an
+    /// autoplay mix seeded by the single video.
+    func next(videoId: String, playlistId: String? = nil) async throws -> Data {
+        var body: [String: Any] = [
             "context": ["client": clientDict()],
             "videoId": videoId
-        ])
+        ]
+        if let playlistId, !playlistId.isEmpty { body["playlistId"] = playlistId }
+        return try await post("next", body: body)
     }
 
     /// `/search` — full-text search across YT Music.
@@ -72,6 +76,14 @@ actor InnerTubeClient {
         ]
         if let params = params { body["params"] = params }
         return try await post("search", body: body)
+    }
+
+    /// Autocomplete for the search field. Same endpoint YT's own box uses.
+    func searchSuggestions(query: String) async throws -> Data {
+        try await post("music/get_search_suggestions", body: [
+            "context": ["client": clientDict()],
+            "input": query
+        ])
     }
 
     /// Like / dislike actions on a videoId. YT's web app posts to these

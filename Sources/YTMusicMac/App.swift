@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installMouseNavMonitor()
         buildMainMenu()
         MainWindowController.shared.show()
+        UpdateChecker.shared.startPeriodicChecks()
     }
 
     /// Hook up mouse side-buttons to Native Mode's back / forward history.
@@ -100,22 +101,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(.separator())
         }
 
-        let playPause = NSMenuItem(title: np.isPlaying ? "Pause" : "Play",
+        let playPause = NSMenuItem(title: np.isPlaying ? "Duraklat" : "Çal",
                                    action: #selector(dockPlayPause), keyEquivalent: "")
         playPause.target = self
         menu.addItem(playPause)
 
-        let next = NSMenuItem(title: "Next", action: #selector(dockNext), keyEquivalent: "")
+        let next = NSMenuItem(title: "Sonraki", action: #selector(dockNext), keyEquivalent: "")
         next.target = self
         menu.addItem(next)
 
-        let prev = NSMenuItem(title: "Previous", action: #selector(dockPrev), keyEquivalent: "")
+        let prev = NSMenuItem(title: "Önceki", action: #selector(dockPrev), keyEquivalent: "")
         prev.target = self
         menu.addItem(prev)
 
         if np.hasTrack {
             menu.addItem(.separator())
-            let like = NSMenuItem(title: np.liked ? "Remove Like" : "Like",
+            let like = NSMenuItem(title: np.liked ? "Beğeniyi kaldır" : "Beğen",
                                   action: #selector(dockLike), keyEquivalent: "")
             like.target = self
             menu.addItem(like)
@@ -138,25 +139,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ----- App menu -----
         let appItem = NSMenuItem()
         let appMenu = NSMenu(title: "YouTube Music")
-        appMenu.addItem(withTitle: "About YouTube Music",
+        appMenu.addItem(withTitle: "YouTube Music Hakkında",
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
                         keyEquivalent: "")
         appMenu.addItem(.separator())
+        let update = NSMenuItem(title: "Güncellemeleri Denetle…",
+                                action: #selector(AppActions.checkForUpdates),
+                                keyEquivalent: "")
+        update.target = AppActions.shared
+        appMenu.addItem(update)
+        appMenu.addItem(.separator())
         appMenu.addItem(settingsMenuItem())
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Hide YouTube Music",
+        appMenu.addItem(withTitle: "YouTube Music'i Gizle",
                         action: #selector(NSApplication.hide(_:)),
                         keyEquivalent: "h")
-        let hideOthers = NSMenuItem(title: "Hide Others",
+        let hideOthers = NSMenuItem(title: "Diğerlerini Gizle",
                                     action: #selector(NSApplication.hideOtherApplications(_:)),
                                     keyEquivalent: "h")
         hideOthers.keyEquivalentModifierMask = [.command, .option]
         appMenu.addItem(hideOthers)
-        appMenu.addItem(withTitle: "Show All",
+        appMenu.addItem(withTitle: "Tümünü Göster",
                         action: #selector(NSApplication.unhideAllApplications(_:)),
                         keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit YouTube Music",
+        appMenu.addItem(withTitle: "YouTube Music'ten Çık",
                         action: #selector(NSApplication.terminate(_:)),
                         keyEquivalent: "q")
         appItem.submenu = appMenu
@@ -164,76 +171,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // ----- Edit menu (needed for cut/copy/paste in WKWebView text fields) -----
         let editItem = NSMenuItem()
-        let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-        let redo = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        let editMenu = NSMenu(title: "Düzen")
+        editMenu.addItem(withTitle: "Geri Al", action: Selector(("undo:")), keyEquivalent: "z")
+        let redo = NSMenuItem(title: "Yinele", action: Selector(("redo:")), keyEquivalent: "z")
         redo.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(redo)
         editMenu.addItem(.separator())
-        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(withTitle: "Kes", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Kopyala", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Yapıştır", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Tümünü Seç", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = editMenu
         main.addItem(editItem)
 
         // ----- Controls menu -----
         let ctrlItem = NSMenuItem()
-        let ctrl = NSMenu(title: "Controls")
-        ctrl.addItem(item("Play / Pause", #selector(StatusActions.playPause), target: StatusActions.shared, key: " "))
-        ctrl.addItem(item("Next Track", #selector(StatusActions.next), target: StatusActions.shared,
+        let ctrl = NSMenu(title: "Denetimler")
+        ctrl.addItem(item("Çal / Duraklat", #selector(StatusActions.playPause), target: StatusActions.shared, key: " "))
+        ctrl.addItem(item("Sonraki Parça", #selector(StatusActions.next), target: StatusActions.shared,
                           key: String(UnicodeScalar(NSRightArrowFunctionKey)!)))
-        ctrl.addItem(item("Previous Track", #selector(StatusActions.prev), target: StatusActions.shared,
+        ctrl.addItem(item("Önceki Parça", #selector(StatusActions.prev), target: StatusActions.shared,
                           key: String(UnicodeScalar(NSLeftArrowFunctionKey)!)))
-        ctrl.addItem(item("Seek Forward 10s", #selector(StatusActions.seekForward), target: StatusActions.shared,
+        ctrl.addItem(item("10 sn İleri Sar", #selector(StatusActions.seekForward), target: StatusActions.shared,
                           key: String(UnicodeScalar(NSRightArrowFunctionKey)!), mods: [.option]))
-        ctrl.addItem(item("Seek Back 10s", #selector(StatusActions.seekBackward), target: StatusActions.shared,
+        ctrl.addItem(item("10 sn Geri Sar", #selector(StatusActions.seekBackward), target: StatusActions.shared,
                           key: String(UnicodeScalar(NSLeftArrowFunctionKey)!), mods: [.option]))
         ctrl.addItem(.separator())
-        ctrl.addItem(item("Like / Unlike", #selector(StatusActions.like), target: StatusActions.shared,
+        ctrl.addItem(item("Beğen / Beğeniyi Kaldır", #selector(StatusActions.like), target: StatusActions.shared,
                           key: "l", mods: [.command]))
-        ctrl.addItem(item("Shuffle", #selector(StatusActions.shuffle), target: StatusActions.shared,
+        ctrl.addItem(item("Karıştır", #selector(StatusActions.shuffle), target: StatusActions.shared,
                           key: "s", mods: [.command, .control]))
-        ctrl.addItem(item("Repeat", #selector(StatusActions.repeatMode), target: StatusActions.shared,
+        ctrl.addItem(item("Yinele", #selector(StatusActions.repeatMode), target: StatusActions.shared,
                           key: "r", mods: [.command, .control]))
         ctrl.addItem(.separator())
-        ctrl.addItem(item("Now Playing (Fullscreen)", #selector(AppActions.toggleNowPlaying),
+        ctrl.addItem(item("Şimdi Çalıyor (Tam Ekran)", #selector(AppActions.toggleNowPlaying),
                           target: AppActions.shared, key: "f", mods: [.command]))
         ctrl.addItem(.separator())
-        ctrl.addItem(item("Focus Search", #selector(AppActions.focusSearch), target: AppActions.shared,
+        ctrl.addItem(item("Aramaya Odaklan", #selector(AppActions.focusSearch), target: AppActions.shared,
                           key: "k", mods: [.command]))
-        ctrl.addItem(item("Toggle Queue Panel", #selector(AppActions.toggleQueue), target: AppActions.shared,
+        ctrl.addItem(item("Kuyruk Panelini Aç/Kapat", #selector(AppActions.toggleQueue), target: AppActions.shared,
                           key: "e", mods: [.command]))
-        ctrl.addItem(item("Toggle Lyrics", #selector(AppActions.toggleLyrics), target: AppActions.shared,
+        ctrl.addItem(item("Şarkı Sözlerini Aç/Kapat", #selector(AppActions.toggleLyrics), target: AppActions.shared,
                           key: "y", mods: [.command]))
         ctrl.addItem(.separator())
         // Cmd+Left / Cmd+Right — Safari's other standard for back/forward,
         // and the only one that survives non-US keyboard layouts (on a
         // Turkish-Q `[` maps to `Ğ` and `]` to `Ü`, which is why the
         // bracket shortcuts looked nonsense).
-        ctrl.addItem(item("Back", #selector(AppActions.goBack), target: AppActions.shared,
+        ctrl.addItem(item("Geri", #selector(AppActions.goBack), target: AppActions.shared,
                           key: String(UnicodeScalar(NSLeftArrowFunctionKey)!),
                           mods: [.command]))
-        ctrl.addItem(item("Forward", #selector(AppActions.goForward), target: AppActions.shared,
+        ctrl.addItem(item("İleri", #selector(AppActions.goForward), target: AppActions.shared,
                           key: String(UnicodeScalar(NSRightArrowFunctionKey)!),
                           mods: [.command]))
-        ctrl.addItem(item("Reload", #selector(AppActions.reload), target: AppActions.shared,
+        ctrl.addItem(item("Yeniden Yükle", #selector(AppActions.reload), target: AppActions.shared,
                           key: "r", mods: [.command]))
         ctrl.addItem(.separator())
-        ctrl.addItem(item("Sign Out & Clear Data", #selector(AppActions.clearData), target: AppActions.shared,
+        ctrl.addItem(item("Çıkış Yap ve Verileri Temizle", #selector(AppActions.clearData), target: AppActions.shared,
                           key: "\u{8}", mods: [.command, .shift])) // ⌫
         ctrlItem.submenu = ctrl
         main.addItem(ctrlItem)
 
         // ----- Window menu -----
         let winItem = NSMenuItem()
-        let win = NSMenu(title: "Window")
-        win.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
-        win.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        let win = NSMenu(title: "Pencere")
+        win.addItem(withTitle: "Simge Durumuna Küçült", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        win.addItem(withTitle: "Kapat", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         win.addItem(.separator())
-        win.addItem(item("Main Window", #selector(StatusActions.showMain), target: StatusActions.shared,
+        win.addItem(item("Ana Pencere", #selector(StatusActions.showMain), target: StatusActions.shared,
                          key: "0", mods: [.command]))
-        win.addItem(item("Mini Player", #selector(StatusActions.showMini), target: StatusActions.shared,
+        win.addItem(item("Mini Oynatıcı", #selector(StatusActions.showMini), target: StatusActions.shared,
                          key: "m", mods: [.command, .shift]))
         winItem.submenu = win
         main.addItem(winItem)
@@ -245,7 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// because SwiftUI's system selectors don't reliably hook in when we own
     /// the main menu manually.
     static func settingsMenuItem() -> NSMenuItem {
-        let item = NSMenuItem(title: "Settings…",
+        let item = NSMenuItem(title: "Ayarlar…",
                               action: #selector(AppActions.openSettings),
                               keyEquivalent: ",")
         item.target = AppActions.shared
@@ -269,6 +276,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// Selector targets for menu items that don't belong on StatusActions.
 final class AppActions: NSObject {
     static let shared = AppActions()
+
+    /// Manual check from the app menu. Unlike the periodic one this always
+    /// says something, so "nothing happened" can't be mistaken for a failure.
+    @objc func checkForUpdates() {
+        Task { @MainActor in
+            let found = await UpdateChecker.shared.check()
+            let alert = NSAlert()
+            if let found {
+                alert.messageText = "Yeni sürüm var: v\(found.version)"
+                alert.informativeText = found.notes ?? ""
+                alert.addButton(withTitle: "İndir")
+                alert.addButton(withTitle: "Daha sonra")
+                if alert.runModal() == .alertFirstButtonReturn {
+                    NSWorkspace.shared.open(found.downloadURL)
+                }
+            } else {
+                alert.messageText = "Güncel sürümü kullanıyorsun."
+                alert.informativeText = "Yüklü sürüm: v\(UpdateChecker.shared.currentVersion)"
+                alert.addButton(withTitle: "Tamam")
+                alert.runModal()
+            }
+        }
+    }
     @objc func focusSearch() {
         // In Native Mode the WebView is hidden, so focusing YT's own search
         // box accomplishes nothing the user can see. Route to the SwiftUI

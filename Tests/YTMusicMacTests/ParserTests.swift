@@ -285,6 +285,171 @@ final class ParserTests: XCTestCase {
         XCTAssertEqual(playlists[0].id, "VLPLchill")
     }
 
+    func testCategoryParserReadsSubtitleAndTrackCount() {
+        // YT only sometimes ends the subtitle with a count run; the card
+        // shows a badge when it's there and nothing when it isn't.
+        let json = """
+        {
+          "contents": [
+            { "musicTwoRowItemRenderer": {
+                "title": { "runs": [{ "text": "Counted" }] },
+                "subtitle": { "runs": [
+                    { "text": "Playlist" }, { "text": " • " }, { "text": "50 songs" }
+                ]},
+                "navigationEndpoint": { "browseEndpoint": { "browseId": "VLPLa" } }
+            }},
+            { "musicTwoRowItemRenderer": {
+                "title": { "runs": [{ "text": "Turkish" }] },
+                "subtitle": { "runs": [{ "text": "12 şarkı" }] },
+                "navigationEndpoint": { "browseEndpoint": { "browseId": "VLPLb" } }
+            }},
+            { "musicTwoRowItemRenderer": {
+                "title": { "runs": [{ "text": "Uncounted" }] },
+                "subtitle": { "runs": [{ "text": "Ashnikko, Rico Nasty" }] },
+                "navigationEndpoint": { "browseEndpoint": { "browseId": "VLPLc" } }
+            }}
+          ]
+        }
+        """.data(using: .utf8)!
+        let playlists = CategoryParser.parse(data: json)
+        XCTAssertEqual(playlists.count, 3)
+        XCTAssertEqual(playlists[0].trackCount, 50)
+        XCTAssertEqual(playlists[0].subtitle, "Playlist • 50 songs")
+        XCTAssertEqual(playlists[1].trackCount, 12)
+        XCTAssertNil(playlists[2].trackCount)
+        XCTAssertEqual(playlists[2].subtitle, "Ashnikko, Rico Nasty")
+    }
+
+    // MARK: - WatchNextParser (queue)
+
+    func testWatchNextQueueParsesRowsAndCollapsesCounterparts() {
+        // The wrapper carries the song and its music-video counterpart with
+        // the same videoId back to back — the queue should show it once.
+        let json = """
+        {
+          "playlistPanelRenderer": { "contents": [
+            { "playlistPanelVideoRenderer": {
+                "videoId": "aaa",
+                "title": { "runs": [{ "text": "Save Tonight" }] },
+                "longBylineText": { "runs": [
+                    { "text": "Eagle-Eye Cherry" }, { "text": " • " }, { "text": "Desireless" }
+                ]},
+                "thumbnail": { "thumbnails": [{ "url": "https://small" }, { "url": "https://big" }] }
+            }},
+            { "playlistPanelVideoWrapperRenderer": { "primaryRenderer": {
+                "playlistPanelVideoRenderer": {
+                    "videoId": "aaa",
+                    "title": { "runs": [{ "text": "Save Tonight" }] },
+                    "longBylineText": { "runs": [{ "text": "Eagle-Eye Cherry" }] }
+                }
+            }}},
+            { "playlistPanelVideoRenderer": {
+                "videoId": "bbb",
+                "title": { "runs": [{ "text": "Cino" }] },
+                "longBylineText": { "runs": [{ "text": "Rozz Kalliope" }] }
+            }}
+          ]}
+        }
+        """.data(using: .utf8)!
+        let q = WatchNextParser.queue(data: json)
+        XCTAssertEqual(q.map(\.videoId), ["aaa", "bbb"])
+        XCTAssertEqual(q[0].artist, "Eagle-Eye Cherry",
+                       "only the first byline run — the rest is album/year")
+        XCTAssertEqual(q[0].thumbnailURL, "https://big", "highest-res thumbnail")
+        XCTAssertEqual(q.map(\.id), [0, 1], "ids are positions")
+    }
+
+    func testWatchNextQueueIsEmptyForUnreadableResponse() {
+        let json = "{ \"contents\": {} }".data(using: .utf8)!
+        XCTAssertTrue(WatchNextParser.queue(data: json).isEmpty,
+                      "callers fall back to the DOM copy on an empty parse")
+    }
+
+    // MARK: - SearchSuggestionsParser
+
+    func testSearchSuggestionsJoinsRunsAndSkipsHistoryEntries() {
+        // YT splits the suggestion across a typed run and a completion run,
+        // and mixes in the account's own past searches — which we don't want,
+        // the shell keeps its own recent-search list.
+        let json = """
+        {
+          "contents": [
+            { "searchSuggestionsSectionRenderer": { "contents": [
+                { "historySuggestionRenderer": {
+                    "suggestion": { "runs": [{ "text": "eski arama" }] } }},
+                { "searchSuggestionRenderer": {
+                    "suggestion": { "runs": [{ "text": "desire" }, { "text": "less" }] } }},
+                { "searchSuggestionRenderer": {
+                    "suggestion": { "runs": [{ "text": "desireless voyage" }] } }},
+                { "searchSuggestionRenderer": {
+                    "suggestion": { "runs": [{ "text": "Desireless" }] } }}
+            ]}}
+          ]
+        }
+        """.data(using: .utf8)!
+        let out = SearchSuggestionsParser.parse(data: json)
+        XCTAssertEqual(out, ["desireless", "desireless voyage"],
+                       "runs join, history is skipped, case-insensitive dupes collapse")
+    }
+
+    func testSearchSuggestionsRespectsLimit() {
+        let items = (0..<12).map {
+            "{ \"searchSuggestionRenderer\": { \"suggestion\": { \"runs\": [{ \"text\": \"q\($0)\" }] } } }"
+        }.joined(separator: ",")
+        let json = "{ \"contents\": [\(items)] }".data(using: .utf8)!
+        XCTAssertEqual(SearchSuggestionsParser.parse(data: json, limit: 5).count, 5)
+    }
+
+    // MARK: - HistoryParser
+
+    func testHistoryParserGroupsByDayAndKeepsRepeats() {
+        // FEmusic_history returns one musicShelfRenderer per day bucket.
+        // The same track played twice today must appear twice.
+        let json = """
+        {
+          "contents": [
+            { "musicShelfRenderer": {
+                "title": { "runs": [{ "text": "Bugün" }] },
+                "contents": [
+                  { "musicResponsiveListItemRenderer": {
+                      "flexColumns": [
+                        { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Save Tonight" }] }}},
+                        { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Eagle-Eye Cherry" }] }}}
+                      ],
+                      "playlistItemData": { "videoId": "aaa" }
+                  }},
+                  { "musicResponsiveListItemRenderer": {
+                      "flexColumns": [
+                        { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Save Tonight" }] }}},
+                        { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Eagle-Eye Cherry" }] }}}
+                      ],
+                      "playlistItemData": { "videoId": "aaa" }
+                  }}
+                ]
+            }},
+            { "musicShelfRenderer": {
+                "title": { "runs": [{ "text": "Dün" }] },
+                "contents": [
+                  { "musicResponsiveListItemRenderer": {
+                      "flexColumns": [
+                        { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Cino" }] }}},
+                        { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Rozz Kalliope" }] }}}
+                      ],
+                      "playlistItemData": { "videoId": "bbb" }
+                  }}
+                ]
+            }}
+          ]
+        }
+        """.data(using: .utf8)!
+        let sections = HistoryParser.parse(data: json)
+        XCTAssertEqual(sections.count, 2)
+        XCTAssertEqual(sections[0].title, "Bugün")
+        XCTAssertEqual(sections[0].tracks.count, 2, "repeats within a day must survive")
+        XCTAssertEqual(sections[1].title, "Dün")
+        XCTAssertEqual(sections[1].tracks[0].artist, "Rozz Kalliope")
+    }
+
     // MARK: - ChartsParser (Explore → charts)
 
     func testChartsParserExtractsRankedSongShelf() {

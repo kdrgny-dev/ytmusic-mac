@@ -173,10 +173,32 @@ enum PlayerBridge {
         catch (e) { return 'NONE'; }
       }
 
+      // The player bar's like renderer, not whichever one happens to come
+      // first in the document (list rows carry their own).
+      function likeRenderer() {
+        return q('ytmusic-player-bar ytmusic-like-button-renderer')
+            || q('ytmusic-like-button-renderer');
+      }
+
       function likeStatus() {
         try {
-          var el = q('ytmusic-like-button-renderer');
+          var el = likeRenderer();
           return el ? el.getAttribute('like-status') : null;
+        } catch (e) { return null; }
+      }
+
+      // `#button-shape-like` is a <yt-button-shape>, and the click handler
+      // lives on the <button> it wraps — clicking the wrapper does nothing.
+      function likeButton(kind) {
+        try {
+          var r = likeRenderer();
+          if (!r) return null;
+          var shape = r.querySelector('#button-shape-' + kind);
+          if (shape) return shape.querySelector('button') || shape;
+          var sel = kind === 'dislike'
+            ? 'button[aria-label*="dislike" i], button[aria-label*="beğenme" i]'
+            : 'button[aria-label*="like" i]:not([aria-label*="dislike" i]), button[aria-label*="beğen" i]:not([aria-label*="beğenme" i])';
+          return r.querySelector(sel);
         } catch (e) { return null; }
       }
 
@@ -201,11 +223,23 @@ enum PlayerBridge {
         } catch (e) {}
       }
 
+      // The URL is the usual source, but YT doesn't always carry ?v= (queue
+      // advances on some pages leave it behind), and Native Mode's like
+      // button needs a videoId to hit the API with. The player bar's own
+      // like button knows exactly which video it would rate — ask it.
       function currentVideoId() {
         try {
           var m = location.href.match(/[?&]v=([^&]+)/);
-          return m ? decodeURIComponent(m[1]) : '';
-        } catch (e) { return ''; }
+          if (m) return decodeURIComponent(m[1]);
+        } catch (e) {}
+        try {
+          var r = q('ytmusic-player-bar ytmusic-like-button-renderer')
+               || q('ytmusic-like-button-renderer');
+          var d = r && (r.data || r.data_);
+          var vid = d && d.target && d.target.videoId;
+          if (vid) return vid;
+        } catch (e) {}
+        return '';
       }
       function send() {
         try {
@@ -423,16 +457,10 @@ enum PlayerBridge {
             }
             return;
           }
-          if (cmd === 'like') {
-            var like = q('ytmusic-like-button-renderer #button-shape-like') ||
-                       q('ytmusic-like-button-renderer button[aria-label*="like" i]:not([aria-label*="dislike" i])');
-            if (like) like.click();
-            return;
-          }
-          if (cmd === 'dislike') {
-            var dis = q('ytmusic-like-button-renderer #button-shape-dislike') ||
-                      q('ytmusic-like-button-renderer button[aria-label*="dislike" i]');
-            if (dis) dis.click();
+          if (cmd === 'like' || cmd === 'dislike') {
+            var lb = likeButton(cmd);
+            if (lb) lb.click();
+            setTimeout(send, 250); // re-read like-status after YT updates it
             return;
           }
           if (cmd === 'shuffle') {

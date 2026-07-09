@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Combine
+import WebKit
 
 /// State for the SwiftUI shell — owns the auth + InnerTube clients and
 /// surfaces decoded data (playlist list, etc.) as @Published values for
@@ -14,11 +15,21 @@ final class NativeShellViewModel: ObservableObject {
         let id: String           // "VLPL..." browseId from InnerTube
         let title: String
         let thumbnailURL: String?
+        /// YT's second line — usually a description or sample artists.
+        var subtitle: String? = nil
+        /// Only some shelves carry a "N songs" run; nil when YT omits it.
+        var trackCount: Int? = nil
 
         /// The "PL..." form used in /watch?list= URLs.
         var playlistURLId: String {
             id.hasPrefix("VL") ? String(id.dropFirst(2)) : id
         }
+
+        /// Identity is the browseId. The same playlist reaches us from
+        /// several shelves with different amounts of metadata, and views
+        /// compare instances across those sources (sidebar row vs open page).
+        static func == (a: Self, b: Self) -> Bool { a.id == b.id }
+        func hash(into hasher: inout Hasher) { hasher.combine(id) }
     }
 
     struct TrackSummary: Identifiable, Hashable {
@@ -34,6 +45,46 @@ final class NativeShellViewModel: ObservableObject {
     }
 
     @Published private(set) var playlists: [PlaylistSummary] = []
+
+    /// User's own sidebar ordering, as browseIds. Purely local — YT has no
+    /// concept of an ordered playlist library, so there's nothing to sync.
+    @Published private(set) var playlistOrder: [String] = []
+    private let playlistOrderKey = "pref.playlistOrder"
+
+    /// `playlists` arranged by `playlistOrder`. Playlists created or saved
+    /// since the last drag have no rank yet and surface at the top, where
+    /// they're easiest to find.
+    var orderedPlaylists: [PlaylistSummary] {
+        guard !playlistOrder.isEmpty else { return playlists }
+        var rank: [String: Int] = [:]
+        for (i, id) in playlistOrder.enumerated() { rank[id] = i }
+        let ranked = playlists.filter { rank[$0.id] != nil }
+                              .sorted { rank[$0.id]! < rank[$1.id]! }
+        let unranked = playlists.filter { rank[$0.id] == nil }
+        return unranked + ranked
+    }
+
+    var hasCustomPlaylistOrder: Bool { !playlistOrder.isEmpty }
+
+    /// Drag-to-reorder: drop the dragged playlist at the target's position.
+    func movePlaylist(fromId: String, toId: String) {
+        guard fromId != toId else { return }
+        var ids = orderedPlaylists.map(\.id)
+        guard let from = ids.firstIndex(of: fromId) else { return }
+        let moved = ids.remove(at: from)
+        let to = ids.firstIndex(of: toId) ?? ids.count
+        ids.insert(moved, at: to)
+        playlistOrder = ids
+        UserDefaults.standard.set(ids, forKey: playlistOrderKey)
+    }
+
+    /// Back to whatever order YT hands us.
+    func resetPlaylistOrder() {
+        playlistOrder = []
+        UserDefaults.standard.removeObject(forKey: playlistOrderKey)
+        showToast("Sıralama sıfırlandı")
+    }
+
     @Published private(set) var loadingPlaylists = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var isAuthenticated: Bool
@@ -42,6 +93,21 @@ final class NativeShellViewModel: ObservableObject {
     @Published private(set) var tracks: [TrackSummary] = []
     @Published private(set) var loadingTracks = false
     @Published private(set) var tracksError: String?
+
+    /// The `list=` value that makes /watch build a queue for `selectedPlaylist`.
+    /// Usually just its bare id, but albums browse under MPRE… and play under
+    /// OLAK5uy… — see `loadTracks`.
+    private var watchPlaylistId: String?
+
+    /// browseId of the collection the current track is playing out of, so the
+    /// sidebar can mark the row the user is listening to. Nil once playback
+    /// leaves it (radio, a queued track, a song card).
+    @Published private(set) var nowPlayingCollectionId: String?
+
+    /// True when `p` is the collection currently feeding the player.
+    func isNowPlayingCollection(_ p: PlaylistSummary) -> Bool {
+        nowPlayingCollectionId == p.id
+    }
 
     /// Album library (save/unsave) state for the currently-open album.
     @Published private(set) var isAlbumSaved: Bool = false
@@ -98,6 +164,7 @@ final class NativeShellViewModel: ObservableObject {
         case empty
         case home
         case explore
+        case history
         case playlist(PlaylistSummary)
         case category(GenreChip)
         case artist(String)   // browseId; full data lives in artistDetail
@@ -187,6 +254,7 @@ final class NativeShellViewModel: ObservableObject {
         case .empty: break
         case .home: if !homeLoaded { Task { await loadHome() } }
         case .explore: if !exploreLoaded { Task { await loadExplore() } }
+        case .history: Task { await loadHistory() }
         case .playlist(let p):
             selectedPlaylist = p
             Task { await loadTracks(for: p) }
@@ -244,10 +312,11 @@ final class NativeShellViewModel: ObservableObject {
             let parsed = ArtistParser.parse(data: data, browseId: browseId)
             guard reqID == artistRequestID else { return }
             artistDetail = parsed
-            artistError = parsed == nil ? "Couldn't load \(title.isEmpty ? "this artist" : title)." : nil
+            artistError = parsed == nil ? "\(title.isEmpty ? "Sanatçı" : title) yüklenemedi." : nil
         } catch {
             guard reqID == artistRequestID else { return }
-            artistError = "Couldn't load this artist."
+            noteFailure(error)
+            artistError = "Sanatçı yüklenemedi."
         }
     }
 
@@ -300,6 +369,13 @@ final class NativeShellViewModel: ObservableObject {
     @Published private(set) var exploreError: String?
     private var exploreLoaded: Bool = false
 
+    /// Listening history, grouped by YT's own day headers ("Today", "Bugün",
+    /// "Last week"…). Unlike home/explore this is refetched on every visit —
+    /// a stale history is worse than a slow one.
+    @Published private(set) var historySections: [ChartSection] = []
+    @Published private(set) var historyLoading: Bool = false
+    @Published private(set) var historyError: String?
+
     struct QueueItem: Identifiable, Hashable {
         let id: Int        // index — stable per render, matches JS-side index
         let videoId: String?
@@ -333,10 +409,10 @@ final class NativeShellViewModel: ObservableObject {
         /// Title shown in the tab picker.
         var label: String {
             switch self {
-            case .playlist: return "Playlists"
-            case .song:     return "Songs"
-            case .artist:   return "Artists"
-            case .album:    return "Albums"
+            case .playlist: return "Çalma listeleri"
+            case .song:     return "Şarkılar"
+            case .artist:   return "Sanatçılar"
+            case .album:    return "Albümler"
             }
         }
 
@@ -398,6 +474,25 @@ final class NativeShellViewModel: ObservableObject {
         }
     }
 
+    /// Autocomplete for whatever is in the search field. Tab-independent —
+    /// YT suggests queries, not results — so it survives tab flips.
+    @Published private(set) var searchSuggestions: [String] = []
+    private var suggestTask: Task<Void, Never>?
+
+    private func scheduleSuggestions(for query: String) {
+        suggestTask?.cancel()
+        guard query.count >= 2 else { searchSuggestions = []; return }
+        suggestTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            guard !Task.isCancelled else { return }
+            guard let data = try? await client.searchSuggestions(query: query) else { return }
+            guard !Task.isCancelled else { return }
+            // Drop the suggestion that only restates what's already typed.
+            searchSuggestions = SearchSuggestionsParser.parse(data: data)
+                .filter { $0.caseInsensitiveCompare(query) != .orderedSame }
+        }
+    }
+
     /// Recent search queries (most-recent first), persisted across launches.
     @Published private(set) var searchHistory: [String] = []
     private let searchHistoryKey = "pref.searchHistory"
@@ -430,10 +525,132 @@ final class NativeShellViewModel: ObservableObject {
     private let auth = AuthSession()
     private let client: InnerTubeClient
 
+    // MARK: - Failure banner
+
+    /// A condition that breaks the whole app rather than one page, so it gets
+    /// a persistent bar instead of an inline "couldn't load" string.
+    enum Banner: Equatable {
+        case offline
+        case signedOut
+
+        var message: String {
+            switch self {
+            case .offline:  return "İnternet bağlantısı yok."
+            case .signedOut: return "YT Music oturumun düşmüş. Kitaplığın ve beğenilerin yüklenemiyor."
+            }
+        }
+
+        var actionTitle: String {
+            switch self {
+            case .offline:  return "Yeniden dene"
+            case .signedOut: return "Giriş yap"
+            }
+        }
+    }
+
+    @Published private(set) var banner: Banner?
+
+    /// Classify a failed InnerTube call. Page-level errors (a bad browseId, an
+    /// empty shelf) stay inline — only app-wide breakage raises the bar.
+    func noteFailure(_ error: Error) {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost,
+                 .dataNotAllowed, .cannotConnectToHost, .timedOut:
+                banner = .offline
+            default:
+                break
+            }
+            return
+        }
+        if case InnerTubeClient.APIError.httpStatus(let code, _) = error, code == 401 || code == 403 {
+            banner = .signedOut
+        }
+    }
+
+    /// Any successful call proves both conditions are over.
+    func noteSuccess() {
+        if banner != nil { banner = nil }
+    }
+
+    /// The banner's action button.
+    func resolveBanner() {
+        switch banner {
+        case .offline:
+            banner = nil
+            retryCurrentSection()
+        case .signedOut:
+            // The sign-in flow lives in YT's own web UI, which Native Mode
+            // hides. Drop back to it; the user can flip the mode back on.
+            banner = nil
+            Preferences.shared.nativeUIMode = false
+            if let url = URL(string: "https://music.youtube.com/") {
+                WebViewHolder.shared.webView?.load(URLRequest(url: url))
+            }
+        case nil:
+            break
+        }
+    }
+
+    /// Refetch whatever the main area is showing.
+    func retryCurrentSection() {
+        reload()
+        switch mainSection {
+        case .home:     reloadHome()
+        case .explore:  reloadExplore()
+        case .history:  reloadHistory()
+        case .category(let g): Task { await loadCategory(g) }
+        case .artist(let id):  Task { await loadArtist(browseId: id, title: artistDetail?.name ?? "") }
+        case .playlist(let p): Task { await loadTracks(for: p) }
+        case .empty:    break
+        }
+    }
+
+    private var cancellables = Set<AnyCancellable>()
+
     private init() {
         self.client = InnerTubeClient(auth: auth)
         self.isAuthenticated = auth.isAuthenticated
         self.searchHistory = UserDefaults.standard.stringArray(forKey: searchHistoryKey) ?? []
+        self.playlistOrder = UserDefaults.standard.stringArray(forKey: playlistOrderKey) ?? []
+
+        // Lyrics used to be fetched only when a lyrics surface was opened, so
+        // they stayed pinned to whatever track was playing at that moment.
+        MediaController.shared.$nowPlaying
+            .map(\.videoId)
+            .removeDuplicates()
+            .sink { [weak self] videoId in
+                Task { @MainActor in self?.currentTrackChanged(to: videoId) }
+            }
+            .store(in: &cancellables)
+
+        // Reachability beats inferring offline from a failed request: a page
+        // with cached content would otherwise look healthy.
+        ConnectionMonitor.shared.$isOnline
+            .removeDuplicates()
+            .sink { [weak self] online in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if online {
+                        if self.banner == .offline { self.banner = nil }
+                    } else {
+                        self.banner = .offline
+                    }
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func currentTrackChanged(to videoId: String) {
+        refreshQueue(for: videoId)
+        guard lyricsLoadedFor != videoId else { return }
+        lyrics = nil
+        lyricsError = nil
+        lyricsLoadedFor = nil
+        // Refetch right away when the user is looking at lyrics; otherwise the
+        // reset above is enough and the next open pulls the new track's words.
+        guard !videoId.isEmpty, isLyricsVisible || isNowPlayingVisible else { return }
+        loadLyricsForCurrentTrack()
     }
 
     /// Test-only setter for the sidebar playlist list. We need this
@@ -453,6 +670,8 @@ final class NativeShellViewModel: ObservableObject {
         tracksError = nil
         ownQueue = []
         queue = []
+        domQueue = []
+        queueContextId = nil
         queuePlayingIndex = -1
         mainSection = .home
         backStack = []
@@ -469,6 +688,9 @@ final class NativeShellViewModel: ObservableObject {
         exploreLoading = false
         exploreError = nil
         exploreLoaded = false
+        historySections = []
+        historyLoading = false
+        historyError = nil
         categoryPlaylists = []
         categoryLoading = false
         categoryError = nil
@@ -476,6 +698,7 @@ final class NativeShellViewModel: ObservableObject {
         artistDetail = nil
         artistLoading = false
         artistError = nil
+        banner = nil
         isLyricsVisible = false
         lyrics = nil
         lyricsLoading = false
@@ -507,7 +730,7 @@ final class NativeShellViewModel: ObservableObject {
     private func loadPlaylists() async {
         isAuthenticated = auth.isAuthenticated
         guard isAuthenticated else {
-            errorMessage = "Sign in via YT Music to see your library."
+            errorMessage = "Kitaplığını görmek için YT Music'e giriş yap."
             return
         }
         loadingPlaylists = true
@@ -517,9 +740,11 @@ final class NativeShellViewModel: ObservableObject {
             // liked" landing page — same data backing the web sidebar.
             let data = try await client.browse(browseId: "FEmusic_liked_playlists")
             playlists = PlaylistParser.parse(data: data)
-            errorMessage = playlists.isEmpty ? "No playlists yet." : nil
+            errorMessage = playlists.isEmpty ? "Henüz çalma listen yok." : nil
+            noteSuccess()
         } catch {
-            errorMessage = "\(error)"
+            noteFailure(error)
+            errorMessage = "Kitaplık yüklenemedi."
         }
     }
 
@@ -534,6 +759,7 @@ final class NativeShellViewModel: ObservableObject {
         mainSection = .playlist(p)
         tracks = []
         tracksError = nil
+        watchPlaylistId = nil
         Task { await loadTracks(for: p, autoplay: autoplay) }
     }
 
@@ -583,10 +809,11 @@ final class NativeShellViewModel: ObservableObject {
             let cards = CategoryParser.parse(data: data)
             guard reqID == categoryRequestID else { return }
             categoryPlaylists = cards
-            categoryError = cards.isEmpty ? "No playlists in this category." : nil
+            categoryError = cards.isEmpty ? "Bu kategoride çalma listesi yok." : nil
         } catch {
             guard reqID == categoryRequestID else { return }
-            categoryError = "Couldn't load this category."
+            noteFailure(error)
+            categoryError = "Bu kategori yüklenemedi."
         }
     }
 
@@ -604,6 +831,7 @@ final class NativeShellViewModel: ObservableObject {
                 urlStr += "&list=\(plid)"
             }
             if let url = URL(string: urlStr) {
+                nowPlayingCollectionId = nil
                 WebViewHolder.shared.webView?.load(URLRequest(url: url))
             }
         case .playlist, .album:
@@ -653,19 +881,24 @@ final class NativeShellViewModel: ObservableObject {
             // playlist while this one was loading.
             guard selectedPlaylist?.id == p.id else { return }
             tracks = all
-            tracksError = all.isEmpty ? "Empty playlist." : nil
-            // Hover "play" on a card: kick off the first track right away
-            // (don't wait for the remaining pages to paginate in).
-            if autoplay, let first = all.first { playTrack(first) }
-            // Album library toggle tokens (only meaningful for albums).
+            tracksError = all.isEmpty ? "Bu liste boş." : nil
+            // An album's browseId (MPRE…) is not a valid /watch?list= value,
+            // so YT would drop the queue and leave Next dead. Its real
+            // playlist (OLAK5uy_…) is in the browse response — dig it out
+            // before anything can start playing.
             if isAlbumId(p.id) {
+                watchPlaylistId = WatchPlaylistIdParser.playlistId(data: data)
                 let tk = AlbumLibraryParser.tokens(data: data)
                 albumAddToken = tk.add
                 albumRemoveToken = tk.remove
                 isAlbumSaved = false // best-effort: assume not saved until toggled
             } else {
+                watchPlaylistId = p.playlistURLId
                 albumAddToken = nil; albumRemoveToken = nil; isAlbumSaved = false
             }
+            // Hover "play" on a card: kick off the first track right away
+            // (don't wait for the remaining pages to paginate in).
+            if autoplay, let first = all.first { playTrack(first) }
             // Paginate: YT returns ~100 rows per page. Keep pulling while a
             // real track-list continuation token exists. Append progressively
             // so the list grows in front of the user. Capped to avoid runaway.
@@ -684,7 +917,8 @@ final class NativeShellViewModel: ObservableObject {
             }
         } catch {
             guard selectedPlaylist?.id == p.id else { return }
-            tracksError = "\(error)"
+            noteFailure(error)
+            tracksError = "Şarkılar yüklenemedi."
         }
     }
 
@@ -693,9 +927,25 @@ final class NativeShellViewModel: ObservableObject {
     /// audio engine treats it as "the user clicked this row" — playback
     /// starts immediately and prev/next stay within the playlist.
     func playTrack(_ t: TrackSummary) {
-        guard let p = selectedPlaylist else { return }
-        let urlStr = "https://music.youtube.com/watch?v=\(t.id)&list=\(p.playlistURLId)"
+        // Charts, history and other list-less surfaces have no open playlist
+        // to play "inside of" — used to silently do nothing.
+        guard let p = selectedPlaylist else { playStandaloneTrack(t); return }
+        var urlStr = "https://music.youtube.com/watch?v=\(t.id)"
+        // Omitting `list` beats sending a bogus one: YT then seeds an
+        // autoplay queue instead of loading a dead single-track page.
+        if let list = watchPlaylistId, !list.isEmpty {
+            urlStr += "&list=\(list)"
+        }
         guard let url = URL(string: urlStr) else { return }
+        nowPlayingCollectionId = p.id
+        WebViewHolder.shared.webView?.load(URLRequest(url: url))
+    }
+
+    /// Play one track with no list context. YT seeds its own autoplay queue
+    /// from it, so Next still works.
+    func playStandaloneTrack(_ t: TrackSummary) {
+        guard let url = URL(string: "https://music.youtube.com/watch?v=\(t.id)") else { return }
+        nowPlayingCollectionId = nil
         WebViewHolder.shared.webView?.load(URLRequest(url: url))
     }
 
@@ -706,12 +956,15 @@ final class NativeShellViewModel: ObservableObject {
     func startRadio(_ t: TrackSummary) {
         let urlStr = "https://music.youtube.com/watch?v=\(t.id)&list=RDAMVM\(t.id)"
         guard let url = URL(string: urlStr) else { return }
+        nowPlayingCollectionId = nil
         WebViewHolder.shared.webView?.load(URLRequest(url: url))
         showToast("Radyo başlatılıyor")
     }
 
     /// Called by WebViewHolder when the JS bridge pushes a queue update.
     /// Body shape: `{ items: [{title, artist, thumbnail, isPlaying, index}], playingIndex, total }`.
+    /// The DOM scrape is now only a safety net: if `/next` gives us nothing
+    /// for this queue shape, we show whatever the page managed to render.
     func updateQueue(from body: [String: Any]) {
         let raw = (body["items"] as? [[String: Any]]) ?? []
         // YT's DOM sometimes marks more than one queue row "selected"
@@ -729,14 +982,80 @@ final class NativeShellViewModel: ObservableObject {
             return QueueItem(id: idx, videoId: videoId, title: title, artist: artist,
                              thumbnailURL: thumb, isPlaying: idx == playingIdx)
         }
-        queue = mapped
-        queuePlayingIndex = playingIdx
+        domQueue = mapped
+        if queue.isEmpty {
+            queue = mapped
+            queuePlayingIndex = playingIdx
+        }
+    }
+
+    /// Last DOM-scraped queue, kept as the fallback for `/next` misses.
+    private var domQueue: [QueueItem] = []
+    /// The `list=` the current `queue` was built for. nil means "autoplay mix
+    /// seeded by one video", which is regenerated per track.
+    private var queueContextId: String?
+    private var queueTask: Task<Void, Never>?
+
+    /// Rebuild the queue from `/next` when the player moved somewhere the
+    /// current queue doesn't cover. Staying inside the same list is a no-op —
+    /// the rows don't change, only which one is highlighted, and the view
+    /// derives that from `nowPlaying.videoId`.
+    private func refreshQueue(for videoId: String) {
+        guard !videoId.isEmpty else { return }
+        let list = currentWatchListId()
+        let sameContext = (list != nil && list == queueContextId)
+        if sameContext, queue.contains(where: { $0.videoId == videoId }) { return }
+
+        queueTask?.cancel()
+        queueTask = Task { @MainActor in
+            guard let data = try? await client.next(videoId: videoId, playlistId: list) else { return }
+            guard !Task.isCancelled else { return }
+            let parsed = WatchNextParser.queue(data: data)
+            // Bail rather than blank the panel — the DOM copy is better
+            // than nothing if YT hands us a queue shape we can't read.
+            guard !parsed.isEmpty else {
+                if queue.isEmpty { queue = domQueue }
+                return
+            }
+            queue = parsed
+            queueContextId = list
+            queuePlayingIndex = parsed.firstIndex(where: { $0.videoId == videoId }) ?? -1
+        }
     }
 
     /// Jump playback to the n-th item in the current queue.
+    ///
+    /// Synthesising a click on YT's own queue row doesn't take — the row's
+    /// handler is a Polymer gesture listener that ignores untrusted events.
+    /// So we do what every other play path here does: navigate the WebView to
+    /// the track, carrying the page's current `list=` so YT rebuilds the same
+    /// queue and playback continues in order from that point.
     func jumpToQueueIndex(_ index: Int) {
-        let js = "window.__ytmJumpQueue && window.__ytmJumpQueue(\(index))"
-        WebViewHolder.shared.webView?.evaluateJavaScript(js, completionHandler: nil)
+        guard let item = queue.first(where: { $0.id == index }) else { return }
+        playQueueItem(item)
+    }
+
+    func playQueueItem(_ item: QueueItem) {
+        guard let videoId = item.videoId, !videoId.isEmpty else {
+            // No videoId scraped for this row — fall back to the DOM click.
+            let js = "window.__ytmJumpQueue && window.__ytmJumpQueue(\(item.id))"
+            WebViewHolder.shared.webView?.evaluateJavaScript(js, completionHandler: nil)
+            return
+        }
+        var urlStr = "https://music.youtube.com/watch?v=\(videoId)"
+        if let list = currentWatchListId(), !list.isEmpty {
+            urlStr += "&list=\(list)"
+        }
+        guard let url = URL(string: urlStr) else { return }
+        WebViewHolder.shared.webView?.load(URLRequest(url: url))
+    }
+
+    /// The `list=` the hidden WebView is currently playing out of, read off
+    /// its live URL (YT's SPA keeps it in sync via pushState).
+    private func currentWatchListId() -> String? {
+        guard let url = WebViewHolder.shared.webView?.url,
+              let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        return comps.queryItems?.first(where: { $0.name == "list" })?.value
     }
 
     func toggleQueue() {
@@ -744,6 +1063,9 @@ final class NativeShellViewModel: ObservableObject {
         if isQueueVisible {
             isLyricsVisible = false
             isThemePickerVisible = false
+            // Opening the panel before any track change (e.g. right after
+            // launch) would otherwise show whatever the DOM last scraped.
+            if queue.isEmpty { refreshQueue(for: MediaController.shared.nowPlaying.videoId) }
         }
     }
 
@@ -856,7 +1178,7 @@ final class NativeShellViewModel: ObservableObject {
         homeShelves = shelves
         genreSections = sections
         homeError = shelves.isEmpty && sections.isEmpty
-            ? "Couldn't load home."
+            ? "Ana sayfa yüklenemedi."
             : nil
         homeLoaded = true
     }
@@ -866,6 +1188,35 @@ final class NativeShellViewModel: ObservableObject {
         mainSection = .explore
         selectedPlaylist = nil
         if !exploreLoaded { Task { await loadExplore() } }
+    }
+
+    func goHistory() {
+        pushHistory()
+        mainSection = .history
+        selectedPlaylist = nil
+        Task { await loadHistory() }
+    }
+
+    func reloadHistory() { Task { await loadHistory() } }
+
+    private func loadHistory() async {
+        guard !historyLoading else { return }
+        guard auth.isAuthenticated else {
+            historyError = "Geçmişi görmek için YT Music'e giriş yap."
+            return
+        }
+        historyLoading = true
+        defer { historyLoading = false }
+        do {
+            let data = try await client.browse(browseId: "FEmusic_history")
+            let sections = HistoryParser.parse(data: data)
+            historySections = sections
+            historyError = sections.isEmpty ? "Geçmiş boş." : nil
+            noteSuccess()
+        } catch {
+            noteFailure(error)
+            historyError = "Geçmiş yüklenemedi."
+        }
     }
 
     func reloadExplore() { exploreLoaded = false; Task { await loadExplore() } }
@@ -899,7 +1250,7 @@ final class NativeShellViewModel: ObservableObject {
         exploreCharts = charts
         if genreSections.isEmpty { genreSections = genres }
         exploreError = (releases.isEmpty && charts.isEmpty && genreSections.isEmpty)
-            ? "Couldn't load Explore."
+            ? "Keşfet yüklenemedi."
             : nil
         exploreLoaded = true
     }
@@ -924,6 +1275,7 @@ final class NativeShellViewModel: ObservableObject {
     private func scheduleSearch() {
         searchTask?.cancel()
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        scheduleSuggestions(for: query)
         guard !query.isEmpty else {
             searchResults = []
             searchError = nil
@@ -934,7 +1286,7 @@ final class NativeShellViewModel: ObservableObject {
         let key = cacheKey(query: query, tab: searchTab)
         if let cached = searchCache[key] {
             searchResults = cached
-            searchError = cached.isEmpty ? "No results." : nil
+            searchError = cached.isEmpty ? "Sonuç yok." : nil
             return
         }
         let tab = searchTab
@@ -961,11 +1313,12 @@ final class NativeShellViewModel: ObservableObject {
             if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query,
                searchTab == tab {
                 searchResults = parsed
-                searchError = parsed.isEmpty ? "No results." : nil
+                searchError = parsed.isEmpty ? "Sonuç yok." : nil
             }
         } catch {
             guard !Task.isCancelled else { return }
-            searchError = "Search failed"
+            noteFailure(error)
+            searchError = "Arama başarısız"
         }
     }
 
@@ -1014,11 +1367,11 @@ final class NativeShellViewModel: ObservableObject {
         Task {
             do {
                 _ = try await client.like(videoId: videoId)
-                showToast("Liked: \(title)")
+                showToast("Beğenildi: \(title)")
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Like failed (HTTP \(code))")
+                showToast("Beğenilemedi (HTTP \(code))")
             } catch {
-                showToast("Like failed")
+                showToast("Beğenilemedi")
             }
         }
     }
@@ -1027,11 +1380,77 @@ final class NativeShellViewModel: ObservableObject {
         Task {
             do {
                 _ = try await client.dislike(videoId: videoId)
-                showToast("Disliked: \(title)")
+                showToast("Beğenilmedi: \(title)")
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Dislike failed (HTTP \(code))")
+                showToast("İşlem başarısız (HTTP \(code))")
             } catch {
-                showToast("Dislike failed")
+                showToast("İşlem başarısız")
+            }
+        }
+    }
+
+    /// Toggle like (or dislike) on the currently-playing track. Called by
+    /// every heart in the app — player bar, Now Playing screen, mini player,
+    /// menu bar, Dock menu — via `MediaController.run("like")`.
+    ///
+    /// We hit InnerTube rather than clicking YT's own button: in Native Mode
+    /// the page is hidden, and its like button is a `yt-button-shape` whose
+    /// click handler sits on an inner `<button>`, so `.click()` on the
+    /// renderer silently did nothing.
+    func toggleNowPlayingLike(dislike: Bool = false) {
+        let np = MediaController.shared.nowPlaying
+        let videoId = np.videoId
+        // Both of these used to return silently, which looked exactly like a
+        // dead button. Fall through to clicking YT's own control instead.
+        guard !videoId.isEmpty else {
+            MediaController.shared.clickLikeInPage(dislike: dislike)
+            return
+        }
+        guard auth.isAuthenticated else {
+            MediaController.shared.clickLikeInPage(dislike: dislike)
+            showToast("Beğenmek için YT Music'e giriş yap")
+            return
+        }
+
+        let wasLiked = np.liked, wasDisliked = np.disliked
+        let liked: Bool, disliked: Bool
+        if dislike {
+            disliked = !wasDisliked
+            liked = disliked ? false : wasLiked
+        } else {
+            liked = !wasLiked
+            disliked = liked ? false : wasDisliked
+        }
+        MediaController.shared.setLikeState(videoId: videoId, liked: liked, disliked: disliked)
+
+        Task {
+            do {
+                if liked {
+                    _ = try await client.like(videoId: videoId)
+                } else if disliked {
+                    _ = try await client.dislike(videoId: videoId)
+                } else {
+                    _ = try await client.removeLike(videoId: videoId)
+                }
+                if dislike {
+                    showToast(disliked ? "Beğenilmedi olarak işaretlendi" : "İşaret kaldırıldı")
+                } else {
+                    showToast(liked ? "Beğenilenlere eklendi" : "Beğeni kaldırıldı")
+                }
+            } catch {
+                // Don't revert the heart yet: the page click may still land.
+                // Name the status so a recurring failure is diagnosable rather
+                // than "the button doesn't work".
+                MediaController.shared.clickLikeInPage(dislike: dislike)
+                if case InnerTubeClient.APIError.httpStatus(let code, _) = error {
+                    showToast("Beğeni API'si reddetti (HTTP \(code)) — sayfadan denendi")
+                } else {
+                    showToast("Beğeni gönderilemedi — sayfadan denendi")
+                }
+                // Give the click a moment to land, then stop pinning the heart
+                // so the page's real like-status decides what it shows.
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                MediaController.shared.clearLikeOverride()
             }
         }
     }
@@ -1046,10 +1465,10 @@ final class NativeShellViewModel: ObservableObject {
                                 artist: artist, thumbnailURL: thumbnailURL)
         if playNext {
             ownQueue.insert(item, at: 0)
-            showToast("Playing next: \(title)")
+            showToast("Sıradaki: \(title)")
         } else {
             ownQueue.append(item)
-            showToast("Added to queue: \(title)")
+            showToast("Kuyruğa eklendi: \(title)")
         }
     }
 
@@ -1096,6 +1515,7 @@ final class NativeShellViewModel: ObservableObject {
         let next = ownQueue.removeFirst()
         let urlStr = "https://music.youtube.com/watch?v=\(next.videoId)"
         if let url = URL(string: urlStr) {
+            nowPlayingCollectionId = nil
             WebViewHolder.shared.webView?.load(URLRequest(url: url))
         }
         return true
@@ -1115,6 +1535,7 @@ final class NativeShellViewModel: ObservableObject {
         let next = ownQueue.removeFirst()
         let urlStr = "https://music.youtube.com/watch?v=\(next.videoId)"
         if let url = URL(string: urlStr) {
+            nowPlayingCollectionId = nil
             WebViewHolder.shared.webView?.load(URLRequest(url: url))
         }
     }
@@ -1127,6 +1548,7 @@ final class NativeShellViewModel: ObservableObject {
         let urlStr = "https://music.youtube.com/watch?v=\(item.videoId)"
         ownQueue.removeFirst(idx + 1)
         if let url = URL(string: urlStr) {
+            nowPlayingCollectionId = nil
             WebViewHolder.shared.webView?.load(URLRequest(url: url))
         }
     }
@@ -1148,7 +1570,7 @@ final class NativeShellViewModel: ObservableObject {
     /// Clear everything the user manually queued.
     func clearOwnQueue() {
         ownQueue.removeAll()
-        showToast("Cleared queue")
+        showToast("Kuyruk temizlendi")
     }
 
     // MARK: Create playlist
@@ -1358,20 +1780,20 @@ final class NativeShellViewModel: ObservableObject {
                 // "not editable" message.
                 if bareId == "LM" {
                     _ = try await client.like(videoId: videoId)
-                    showToast("Added “\(trackTitle)” to Liked Music")
+                    showToast("“\(trackTitle)” Beğenilen Müzikler'e eklendi")
                     return
                 }
 
                 guard bareId.hasPrefix("PL") else {
-                    showToast("\(playlistTitle) isn't editable")
+                    showToast("\(playlistTitle) düzenlenemez")
                     return
                 }
                 _ = try await client.addToPlaylist(playlistId: bareId, videoId: videoId)
-                showToast("Added “\(trackTitle)” to \(playlistTitle)")
+                showToast("“\(trackTitle)” → \(playlistTitle)")
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Save failed (HTTP \(code))")
+                showToast("Kaydedilemedi (HTTP \(code))")
             } catch {
-                showToast("Save failed")
+                showToast("Kaydedilemedi")
             }
         }
     }
@@ -1439,10 +1861,14 @@ final class NativeShellViewModel: ObservableObject {
         openPlaylist(.init(id: albumId, title: title, thumbnailURL: thumbnailURL))
     }
 
-    /// True when the playlist is already in the user's library — i.e.
-    /// present in `playlists`. Drives the Save/Remove button toggle.
+    /// True when the collection is already in the user's library. Compares on
+    /// the bare id: the same playlist arrives as `VLPL…` from the library
+    /// browse and `PL…` from some card renderers. Albums live in a separate
+    /// shelf, so check both.
     func isPlaylistSaved(_ p: PlaylistSummary) -> Bool {
-        playlists.contains(where: { $0.id == p.id })
+        let target = p.playlistURLId
+        return playlists.contains(where: { $0.playlistURLId == target })
+            || savedAlbums.contains(where: { $0.playlistURLId == target })
     }
 
     /// Save a playlist to the user's library. Routes through the like
@@ -1454,12 +1880,12 @@ final class NativeShellViewModel: ObservableObject {
             do {
                 let bareId = p.id.hasPrefix("VL") ? String(p.id.dropFirst(2)) : p.id
                 _ = try await client.savePlaylist(playlistId: bareId)
-                showToast("Saved “\(p.title)” to library")
+                showToast("“\(p.title)” kitaplığa kaydedildi")
                 await loadPlaylists()
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Save failed (HTTP \(code))")
+                showToast("Kaydedilemedi (HTTP \(code))")
             } catch {
-                showToast("Save failed")
+                showToast("Kaydedilemedi")
             }
         }
     }
@@ -1471,12 +1897,12 @@ final class NativeShellViewModel: ObservableObject {
             do {
                 let bareId = p.id.hasPrefix("VL") ? String(p.id.dropFirst(2)) : p.id
                 _ = try await client.removePlaylist(playlistId: bareId)
-                showToast("Removed “\(p.title)” from library")
+                showToast("“\(p.title)” kitaplıktan çıkarıldı")
                 await loadPlaylists()
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Remove failed (HTTP \(code))")
+                showToast("Çıkarılamadı (HTTP \(code))")
             } catch {
-                showToast("Remove failed")
+                showToast("Çıkarılamadı")
             }
         }
     }
@@ -2031,6 +2457,46 @@ enum HomeParser {
 /// Lyrics are accessed via a separate /browse call against that id;
 /// without this hop we can't get the actual text.
 enum WatchNextParser {
+    /// The player queue, straight out of `/next`. Beats scraping
+    /// `ytmusic-player-queue-item` off the hidden page: it survives YT's
+    /// markup churn and carries the videoId, which the DOM doesn't reliably
+    /// expose.
+    ///
+    /// Rows arrive as `playlistPanelVideoRenderer`, sometimes wrapped so that
+    /// a song and its music-video counterpart sit side by side — those show up
+    /// as consecutive duplicates and get collapsed.
+    static func queue(data: Data) -> [NativeShellViewModel.QueueItem] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return [] }
+        var rows: [(videoId: String, title: String, artist: String, thumb: String?)] = []
+        walk(json) { dict in
+            guard let r = dict["playlistPanelVideoRenderer"] as? [String: Any] else { return }
+            let title = runsText(r["title"])
+            guard !title.isEmpty else { return }
+            let videoId = r["videoId"] as? String ?? ""
+            // longBylineText is "Artist • Album • Year"; only the first run
+            // fits a narrow queue row.
+            let artist = ((r["longBylineText"] as? [String: Any])?["runs"] as? [[String: Any]])?
+                .first?["text"] as? String ?? ""
+            let thumb = ((r["thumbnail"] as? [String: Any])?["thumbnails"] as? [[String: Any]])?
+                .last?["url"] as? String
+            if let last = rows.last, !videoId.isEmpty, last.videoId == videoId { return }
+            rows.append((videoId, title, artist, thumb))
+        }
+        return rows.enumerated().map { idx, r in
+            .init(id: idx,
+                  videoId: r.videoId.isEmpty ? nil : r.videoId,
+                  title: r.title,
+                  artist: r.artist,
+                  thumbnailURL: r.thumb,
+                  isPlaying: false)
+        }
+    }
+
+    private static func runsText(_ node: Any?) -> String {
+        guard let runs = (node as? [String: Any])?["runs"] as? [[String: Any]] else { return "" }
+        return runs.compactMap { $0["text"] as? String }.joined()
+    }
+
     static func extractLyricsBrowseId(data: Data) -> String? {
         guard let json = try? JSONSerialization.jsonObject(with: data) else { return nil }
         var found: String?
@@ -2264,7 +2730,28 @@ enum CategoryParser {
         guard let id = browseId,
               id.hasPrefix("VL") || id.hasPrefix("MPRE") || id.hasPrefix("OLAK"),
               !title.isEmpty else { return nil }
-        return .init(id: id, title: title, thumbnailURL: thumbURL)
+        let runs = (renderer["subtitle"] as? [String: Any])?["runs"] as? [[String: Any]] ?? []
+        let subtitle = runs.compactMap { $0["text"] as? String }.joined()
+        return .init(id: id, title: title, thumbnailURL: thumbURL,
+                     subtitle: subtitle.isEmpty ? nil : subtitle,
+                     trackCount: trackCount(in: runs))
+    }
+
+    /// YT sometimes ends the subtitle with a "50 songs" / "50 şarkı" run.
+    /// When it doesn't, there's no count anywhere in a category response —
+    /// short of browsing all 400-odd playlists — so we just show nothing.
+    private static func trackCount(in runs: [[String: Any]]) -> Int? {
+        for run in runs {
+            guard let text = run["text"] as? String else { continue }
+            let parts = text.split(separator: " ")
+            guard parts.count >= 2, let n = Int(parts[0]) else { continue }
+            let unit = parts[1].lowercased()
+            if unit.hasPrefix("song") || unit.hasPrefix("şarkı")
+                || unit.hasPrefix("track") || unit.hasPrefix("parça") {
+                return n
+            }
+        }
+        return nil
     }
 }
 
@@ -2328,6 +2815,41 @@ enum LibraryParser {
 /// browse response. The album header's toggle is the FIRST
 /// `toggleMenuServiceItemRenderer` whose label mentions "library" (the header
 /// precedes the per-track menus that share the same wording).
+/// An album browses under `MPRE…` but plays under a real playlist id
+/// (`OLAK5uy_…`). YT hands that id back in the response — on the header's
+/// play button, and again on every track row's watch endpoint. Prefer the
+/// explicit `audioPlaylistId` and fall back to the endpoints.
+enum WatchPlaylistIdParser {
+    static func playlistId(data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        return firstValue(in: json) { d in
+            (d["audioPlaylistId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        } ?? firstValue(in: json) { d in
+            for key in ["watchEndpoint", "watchPlaylistEndpoint"] {
+                guard let ep = d[key] as? [String: Any],
+                      let pid = ep["playlistId"] as? String else { continue }
+                if pid.hasPrefix("OLAK") || pid.hasPrefix("PL") { return pid }
+            }
+            return nil
+        }
+    }
+
+    /// Depth-first scan for the first dict where `pick` yields a value.
+    private static func firstValue(in node: Any, pick: ([String: Any]) -> String?) -> String? {
+        if let d = node as? [String: Any] {
+            if let hit = pick(d) { return hit }
+            for v in d.values {
+                if let hit = firstValue(in: v, pick: pick) { return hit }
+            }
+        } else if let a = node as? [Any] {
+            for v in a {
+                if let hit = firstValue(in: v, pick: pick) { return hit }
+            }
+        }
+        return nil
+    }
+}
+
 enum AlbumLibraryParser {
     static func tokens(data: Data) -> (add: String?, remove: String?) {
         guard let json = try? JSONSerialization.jsonObject(with: data) else { return (nil, nil) }
@@ -2397,7 +2919,7 @@ enum ChartsParser {
     /// Both shelf types carry their title behind a header renderer — a
     /// carousel uses `musicCarouselShelfBasicHeaderRenderer`, a music-shelf
     /// puts `title.runs` directly on the renderer.
-    private static func headerTitle(_ renderer: [String: Any]) -> String {
+    static func headerTitle(_ renderer: [String: Any]) -> String {
         if let basic = (renderer["header"] as? [String: Any])?["musicCarouselShelfBasicHeaderRenderer"] as? [String: Any],
            let runs = (basic["title"] as? [String: Any])?["runs"] as? [[String: Any]] {
             return runs.compactMap { $0["text"] as? String }.joined()
@@ -2408,7 +2930,7 @@ enum ChartsParser {
         return ""
     }
 
-    private static func extractTrack(_ renderer: [String: Any]) -> NativeShellViewModel.TrackSummary? {
+    static func extractTrack(_ renderer: [String: Any]) -> NativeShellViewModel.TrackSummary? {
         let flex = (renderer["flexColumns"] as? [[String: Any]]) ?? []
         let title = textInFlex(flex, index: 0)
         let artist = textInFlex(flex, index: 1)
@@ -2434,6 +2956,72 @@ enum ChartsParser {
               let runs = (inner["text"] as? [String: Any])?["runs"] as? [[String: Any]]
         else { return "" }
         return runs.compactMap { $0["text"] as? String }.joined()
+    }
+}
+
+/// Search autocomplete. `music/get_search_suggestions` answers with
+/// `searchSuggestionRenderer` nodes; the query text is split across bold and
+/// plain runs ("dire" + "less"), so the runs have to be joined back together.
+/// The response also carries the user's own past searches as
+/// `historySuggestionRenderer` — we skip those, the shell keeps its own.
+enum SearchSuggestionsParser {
+    static func parse(data: Data, limit: Int = 8) -> [String] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return [] }
+        var out: [String] = []
+        var seen = Set<String>()
+        walk(json) { dict in
+            guard out.count < limit,
+                  let r = dict["searchSuggestionRenderer"] as? [String: Any] else { return }
+            let runs = (r["suggestion"] as? [String: Any])?["runs"] as? [[String: Any]] ?? []
+            let text = runs.compactMap { $0["text"] as? String }.joined()
+                .trimmingCharacters(in: .whitespaces)
+            guard !text.isEmpty, seen.insert(text.lowercased()).inserted else { return }
+            out.append(text)
+        }
+        return out
+    }
+
+    private static func walk(_ node: Any, visit: ([String: Any]) -> Void) {
+        if let dict = node as? [String: Any] {
+            visit(dict)
+            for value in dict.values { walk(value, visit: visit) }
+        } else if let arr = node as? [Any] {
+            for value in arr { walk(value, visit: visit) }
+        }
+    }
+}
+
+/// Listening history. `FEmusic_history` comes back as one `musicShelfRenderer`
+/// per day bucket ("Today", "Yesterday", "Last week"…) — the same shelf shape
+/// the charts use, so the row/title extraction is shared with `ChartsParser`.
+/// Repeats are kept: playing a song three times today is three history rows.
+enum HistoryParser {
+    static func parse(data: Data) -> [NativeShellViewModel.ChartSection] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return [] }
+        var sections: [NativeShellViewModel.ChartSection] = []
+        var idx = 0
+        walk(json) { dict in
+            guard let renderer = dict["musicShelfRenderer"] as? [String: Any] else { return }
+            let title = ChartsParser.headerTitle(renderer)
+            let contents = (renderer["contents"] as? [[String: Any]]) ?? []
+            let tracks: [NativeShellViewModel.TrackSummary] = contents.compactMap { item in
+                guard let r = item["musicResponsiveListItemRenderer"] as? [String: Any] else { return nil }
+                return ChartsParser.extractTrack(r)
+            }
+            guard !title.isEmpty, !tracks.isEmpty else { return }
+            sections.append(.init(id: "history-\(idx)-\(title)", title: title, tracks: tracks))
+            idx += 1
+        }
+        return sections
+    }
+
+    private static func walk(_ node: Any, visit: ([String: Any]) -> Void) {
+        if let dict = node as? [String: Any] {
+            visit(dict)
+            for value in dict.values { walk(value, visit: visit) }
+        } else if let arr = node as? [Any] {
+            for value in arr { walk(value, visit: visit) }
+        }
     }
 }
 

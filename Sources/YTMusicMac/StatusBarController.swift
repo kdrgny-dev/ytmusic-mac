@@ -44,51 +44,51 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
 
-        let track = NSMenuItem(title: "Not Playing", action: nil, keyEquivalent: "")
+        let track = NSMenuItem(title: "Çalmıyor", action: nil, keyEquivalent: "")
         track.isEnabled = false
         menu.addItem(track)
         trackItem = track
 
         menu.addItem(.separator())
 
-        let pp = NSMenuItem(title: "Play", action: #selector(StatusActions.playPause), keyEquivalent: "")
+        let pp = NSMenuItem(title: "Çal", action: #selector(StatusActions.playPause), keyEquivalent: "")
         pp.target = StatusActions.shared
         menu.addItem(pp)
         playPauseItem = pp
 
-        let next = NSMenuItem(title: "Next", action: #selector(StatusActions.next), keyEquivalent: "")
+        let next = NSMenuItem(title: "Sonraki", action: #selector(StatusActions.next), keyEquivalent: "")
         next.target = StatusActions.shared
         menu.addItem(next)
 
-        let prev = NSMenuItem(title: "Previous", action: #selector(StatusActions.prev), keyEquivalent: "")
+        let prev = NSMenuItem(title: "Önceki", action: #selector(StatusActions.prev), keyEquivalent: "")
         prev.target = StatusActions.shared
         menu.addItem(prev)
 
         menu.addItem(.separator())
 
-        let main = NSMenuItem(title: "Show Main Window", action: #selector(StatusActions.showMain), keyEquivalent: "")
+        let main = NSMenuItem(title: "Ana Pencereyi Göster", action: #selector(StatusActions.showMain), keyEquivalent: "")
         main.target = StatusActions.shared
         menu.addItem(main)
 
-        let mini = NSMenuItem(title: "Show Mini Player", action: #selector(StatusActions.showMini), keyEquivalent: "")
+        let mini = NSMenuItem(title: "Mini Oynatıcıyı Göster", action: #selector(StatusActions.showMini), keyEquivalent: "")
         mini.target = StatusActions.shared
         menu.addItem(mini)
 
         menu.addItem(.separator())
 
-        let notify = NSMenuItem(title: "Notify on Track Change", action: #selector(StatusActions.toggleNotify), keyEquivalent: "")
+        let notify = NSMenuItem(title: "Parça Değişince Bildir", action: #selector(StatusActions.toggleNotify), keyEquivalent: "")
         notify.target = StatusActions.shared
         menu.addItem(notify)
         notifyToggleItem = notify
 
-        let sleep = NSMenuItem(title: "Sleep Timer", action: nil, keyEquivalent: "")
+        let sleep = NSMenuItem(title: "Uyku Zamanlayıcı", action: nil, keyEquivalent: "")
         sleep.submenu = buildSleepSubmenu()
         menu.addItem(sleep)
         sleepItem = sleep
 
         menu.addItem(.separator())
 
-        let memory = NSMenuItem(title: "Memory: …", action: nil, keyEquivalent: "")
+        let memory = NSMenuItem(title: "Bellek: …", action: nil, keyEquivalent: "")
         memory.isEnabled = false
         menu.addItem(memory)
         memoryItem = memory
@@ -97,7 +97,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(AppDelegate.settingsMenuItem())
 
-        let quit = NSMenuItem(title: "Quit YouTube Music", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "YouTube Music'ten Çık", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
 
         return menu
@@ -108,17 +108,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     /// Refresh the memory line just before the menu draws. Avoids burning
     /// a timer in the background just to keep that one line live.
     func menuWillOpen(_ menu: NSMenu) {
-        memoryItem?.title = "Memory: " + MemoryDiagnostic.summary()
+        memoryItem?.title = "Bellek: " + MemoryDiagnostic.summary()
     }
 
     private func buildSleepSubmenu() -> NSMenu {
         let m = NSMenu()
         let options: [(String, SleepTimer.Mode)] = [
-            ("5 minutes",  .duration(5 * 60)),
-            ("15 minutes", .duration(15 * 60)),
-            ("30 minutes", .duration(30 * 60)),
-            ("1 hour",     .duration(60 * 60)),
-            ("End of current track", .endOfTrack),
+            ("5 dakika",  .duration(5 * 60)),
+            ("15 dakika", .duration(15 * 60)),
+            ("30 dakika", .duration(30 * 60)),
+            ("1 saat",     .duration(60 * 60)),
+            ("Parça bitince", .endOfTrack),
         ]
         for (label, mode) in options {
             let it = NSMenuItem(title: label, action: #selector(StatusActions.startSleep(_:)), keyEquivalent: "")
@@ -127,7 +127,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             m.addItem(it)
         }
         m.addItem(.separator())
-        let cancel = NSMenuItem(title: "Cancel", action: #selector(StatusActions.cancelSleep), keyEquivalent: "")
+        let cancel = NSMenuItem(title: "İptal", action: #selector(StatusActions.cancelSleep), keyEquivalent: "")
         cancel.target = StatusActions.shared
         m.addItem(cancel)
         return m
@@ -159,7 +159,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             button.title = ""
             button.toolTip = "YouTube Music"
         }
-        playPauseItem?.title = np.isPlaying ? "Pause" : "Play"
+        playPauseItem?.title = np.isPlaying ? "Duraklat" : "Çal"
     }
 
     /// Trims runs of whitespace then truncates with an ellipsis. We're

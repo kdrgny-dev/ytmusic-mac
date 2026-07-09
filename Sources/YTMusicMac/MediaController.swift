@@ -97,8 +97,30 @@ final class MediaController: ObservableObject {
             }
             return
         }
+        // In Native Mode the WebView is hidden, so clicking YT's own like
+        // button is both fragile (the markup keeps moving) and invisible to
+        // the user. Go straight to the InnerTube like endpoint instead and
+        // paint the heart optimistically.
+        if cmd == "like" || cmd == "dislike", Preferences.shared.nativeUIMode {
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    NativeShellViewModel.shared.toggleNowPlayingLike(dislike: cmd == "dislike")
+                }
+            }
+            return
+        }
         DispatchQueue.main.async {
             WebViewHolder.shared.webView?.evaluateJavaScript("window.__ytmCmd && window.__ytmCmd('\(cmd)')", completionHandler: nil)
+        }
+    }
+
+    /// Last-resort like: click YT's own button in the hidden page. Used when
+    /// the InnerTube path can't run (no videoId, signed out) or refuses.
+    func clickLikeInPage(dislike: Bool) {
+        let cmd = dislike ? "dislike" : "like"
+        DispatchQueue.main.async {
+            WebViewHolder.shared.webView?.evaluateJavaScript(
+                "window.__ytmCmd && window.__ytmCmd('\(cmd)')", completionHandler: nil)
         }
     }
 
@@ -106,6 +128,31 @@ final class MediaController: ObservableObject {
     func run(_ cmd: String, value: Double) {
         DispatchQueue.main.async {
             WebViewHolder.shared.webView?.evaluateJavaScript("window.__ytmCmd && window.__ytmCmd('\(cmd)', \(value))", completionHandler: nil)
+        }
+    }
+
+    /// Like state we set ourselves via InnerTube. The hidden WebView's DOM
+    /// never learns about it, so its `like-status` attribute keeps reporting
+    /// the old value and every bridge push would flip the heart back. Held
+    /// per videoId and dropped as soon as a different track loads.
+    private var likeOverride: (videoId: String, liked: Bool, disliked: Bool)?
+
+    /// Stop pinning the heart and let the page's `like-status` be the truth
+    /// again. Called when the API path failed and we handed off to a DOM click.
+    func clearLikeOverride() {
+        likeOverride = nil
+    }
+
+    /// Paint the heart now; `NativeShellViewModel` reverts this if the
+    /// network call turns out to have failed.
+    func setLikeState(videoId: String, liked: Bool, disliked: Bool) {
+        likeOverride = (videoId, liked, disliked)
+        DispatchQueue.main.async {
+            guard self.nowPlaying.videoId == videoId else { return }
+            var s = self.nowPlaying
+            s.liked = liked
+            s.disliked = disliked
+            self.nowPlaying = s
         }
     }
 
@@ -117,7 +164,7 @@ final class MediaController: ObservableObject {
         let cur = info["currentTime"] as? Double ?? 0
         let artURL = info["artwork"] as? String ?? ""
 
-        let newState = NowPlaying(
+        var newState = NowPlaying(
             title: title,
             artist: artist,
             artworkURL: artURL,
@@ -131,6 +178,15 @@ final class MediaController: ObservableObject {
             repeatMode: info["repeatMode"] as? String ?? "NONE",
             hasVideo: info["hasVideo"] as? Bool ?? false
         )
+
+        if let ov = likeOverride {
+            if ov.videoId == newState.videoId {
+                newState.liked = ov.liked
+                newState.disliked = ov.disliked
+            } else if !newState.videoId.isEmpty {
+                likeOverride = nil
+            }
+        }
 
         let trackChanged = newState.hasTrack && newState.trackKey != nowPlaying.trackKey
 

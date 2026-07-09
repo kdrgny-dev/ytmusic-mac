@@ -129,6 +129,61 @@ final class NativeShellViewModelTests: XCTestCase {
         XCTAssertFalse(vm.isPlaylistSaved(other))
     }
 
+    // MARK: - Failure banner
+
+    func testOfflineErrorRaisesOfflineBanner() {
+        vm.noteFailure(URLError(.notConnectedToInternet))
+        XCTAssertEqual(vm.banner, .offline)
+        vm.noteSuccess()
+        XCTAssertNil(vm.banner)
+    }
+
+    func testUnauthorizedRaisesSignedOutBanner() {
+        vm.noteFailure(InnerTubeClient.APIError.httpStatus(401, body: ""))
+        XCTAssertEqual(vm.banner, .signedOut)
+    }
+
+    func testPageLevelFailuresDoNotRaiseABanner() {
+        // A 404 browseId is one broken page, not a broken app.
+        vm.noteFailure(InnerTubeClient.APIError.httpStatus(404, body: ""))
+        XCTAssertNil(vm.banner)
+        vm.noteFailure(URLError(.cancelled))
+        XCTAssertNil(vm.banner)
+    }
+
+    // MARK: - Sidebar playlist ordering
+
+    private func pl(_ id: String) -> NativeShellViewModel.PlaylistSummary {
+        .init(id: id, title: id, thumbnailURL: nil)
+    }
+
+    func testOrderedPlaylistsFollowsServerOrderUntilFirstDrag() {
+        vm.resetPlaylistOrder()
+        vm._testSetPlaylists([pl("a"), pl("b"), pl("c")])
+        XCTAssertEqual(vm.orderedPlaylists.map(\.id), ["a", "b", "c"])
+        XCTAssertFalse(vm.hasCustomPlaylistOrder)
+    }
+
+    func testMovePlaylistReordersAndPersists() {
+        vm.resetPlaylistOrder()
+        vm._testSetPlaylists([pl("a"), pl("b"), pl("c")])
+        vm.movePlaylist(fromId: "c", toId: "a")
+        XCTAssertEqual(vm.orderedPlaylists.map(\.id), ["c", "a", "b"])
+        XCTAssertTrue(vm.hasCustomPlaylistOrder)
+        vm.resetPlaylistOrder()
+        XCTAssertEqual(vm.orderedPlaylists.map(\.id), ["a", "b", "c"])
+    }
+
+    func testNewPlaylistsSurfaceAboveTheCustomOrder() {
+        vm.resetPlaylistOrder()
+        vm._testSetPlaylists([pl("a"), pl("b")])
+        vm.movePlaylist(fromId: "b", toId: "a")   // ranks b, a
+        // A playlist created after the drag has no rank yet.
+        vm._testSetPlaylists([pl("new"), pl("a"), pl("b")])
+        XCTAssertEqual(vm.orderedPlaylists.map(\.id), ["new", "b", "a"])
+        vm.resetPlaylistOrder()
+    }
+
     // MARK: - Search tab state
 
     func testToggleSearchClearsQueryAndResetsTab() {

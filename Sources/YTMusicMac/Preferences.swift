@@ -67,7 +67,14 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// How the category (mood/genre) page lays its playlists out.
+    @Published var categoryLayout: CategoryLayout {
+        didSet { defaults.set(categoryLayout.rawValue, forKey: Keys.categoryLayout) }
+    }
+
     private init() {
+        self.categoryLayout = CategoryLayout(rawValue: defaults.string(forKey: Keys.categoryLayout) ?? "")
+            ?? .largeGrid
         self.notifyOnTrackChange = defaults.bool(forKey: Keys.notify)
         self.miniPlayerAlwaysOnTop = defaults.object(forKey: Keys.miniOnTop) as? Bool ?? true
         self.sidebarCollapsed = defaults.bool(forKey: Keys.sidebarCollapsed)
@@ -90,6 +97,40 @@ final class Preferences: ObservableObject {
         static let crossfadeEnabled = "pref.crossfadeEnabled"
         static let crossfadeDuration = "pref.crossfadeDuration"
         static let nativeUIMode = "pref.nativeUIMode"
+        static let categoryLayout = "pref.categoryLayout"
+    }
+}
+
+enum CategoryLayout: String, CaseIterable, Identifiable {
+    case largeGrid
+    case smallGrid
+    case list
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .largeGrid: return "square.grid.2x2"
+        case .smallGrid: return "square.grid.3x3"
+        case .list:      return "list.bullet"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .largeGrid: return "Büyük ızgara"
+        case .smallGrid: return "Küçük ızgara"
+        case .list:      return "Liste"
+        }
+    }
+
+    /// Cover edge length in the two grid modes.
+    var coverSize: CGFloat {
+        switch self {
+        case .largeGrid: return 160
+        case .smallGrid: return 104
+        case .list:      return 44
+        }
     }
 }
 
