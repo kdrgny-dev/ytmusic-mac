@@ -6,3 +6,4 @@ DerivedData/
 .DS_Store
 Package.resolved
 site/YTMusic.dmg
+Sources/YTMusicMac/Similar/LastfmSecret.swift

@@ -75,6 +75,12 @@ struct NativeShellView: View {
                     .zIndex(30)
             }
 
+            if vm.similarSeed != nil {
+                SimilarPlaylistOverlay(vm: vm)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .zIndex(33)
+            }
+
             if let target = vm.renameTarget {
                 RenamePlaylistOverlay(vm: vm, playlist: target)
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -126,6 +132,9 @@ struct NativeShellView: View {
         .animation(.easeInOut(duration: 0.28), value: vm.isNowPlayingVisible)
         .animation(.easeInOut(duration: 0.18), value: vm.isSearchVisible)
         .animation(.easeInOut(duration: 0.18), value: vm.isCreatePlaylistVisible)
+        // Without this the overlay's .transition has no animation scope to run
+        // in and gets stuck half-dismissed — a translucent film over the page.
+        .animation(.easeInOut(duration: 0.18), value: vm.similarSeed)
         .animation(.easeInOut(duration: 0.18), value: vm.renameTarget)
         .animation(.easeInOut(duration: 0.18), value: vm.deleteTarget)
         .animation(.easeInOut(duration: 0.18), value: prefs.sidebarCollapsed)
@@ -995,6 +1004,241 @@ private struct CreatePlaylistOverlay: View {
     }
 }
 
+// MARK: - Similar-playlist overlay (name + privacy, then animated progress)
+
+private struct SimilarPlaylistOverlay: View {
+    @ObservedObject var vm: NativeShellViewModel
+    @State private var name: String = ""
+    @State private var privacy: NativeShellViewModel.PlaylistPrivacy = .privateListed
+    @FocusState private var nameFocused: Bool
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    switch vm.similarStage {
+                    case .form: vm.cancelSimilarPlaylist()
+                    case .done: vm.finishSimilarPlaylist()
+                    default: break  // ignore taps mid-build
+                    }
+                }
+
+            Group {
+                switch vm.similarStage {
+                case .form:            formCard
+                case .done(let count): successCard(count: count)
+                default:               progressCard
+                }
+            }
+            .frame(width: 420)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.6), radius: 30, y: 12)
+        }
+        .environment(\.colorScheme, .dark)
+        .onAppear {
+            name = vm.similarDefaultTitle
+            nameFocused = true
+        }
+    }
+
+    // MARK: Form
+
+    private var formCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 10) {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(Color.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Benzerlerinden liste")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                    if let seed = vm.similarSeed {
+                        Text("\(seed.title) • \(ArtistName.primary(seed.artist))")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.5))
+                            .lineLimit(1)
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                field("Liste adı", text: $name)
+                    .focused($nameFocused)
+                privacyPicker
+            }
+
+            Text("Last.fm’in bu parçaya benzer bulduğu şarkılardan kalıcı bir çalma listesi oluşturulur.")
+                .font(.system(size: 10))
+                .foregroundColor(.white.opacity(0.45))
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Spacer()
+                Button("İptal") { vm.cancelSimilarPlaylist() }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.white.opacity(0.7))
+                    .padding(.horizontal, 14).padding(.vertical, 7)
+                Button(action: { vm.confirmSimilarPlaylist(title: name, privacy: privacy) }) {
+                    Text("Oluştur")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16).padding(.vertical, 7)
+                        .background(Capsule().fill(canCreate ? Color.accentColor : Color.white.opacity(0.15)))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canCreate)
+            }
+        }
+        .padding(20)
+    }
+
+    private var canCreate: Bool {
+        !name.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    // MARK: Progress
+
+    private var progressCard: some View {
+        VStack(spacing: 18) {
+            EqualizerBars(color: Color.accentColor)
+
+            Text(stageTitle)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white)
+                .animation(.default, value: stageTitle)
+
+            if case let .matching(done, total) = vm.similarStage, total > 0 {
+                VStack(spacing: 6) {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Color.white.opacity(0.12))
+                            Capsule().fill(Color.accentColor)
+                                .frame(width: geo.size.width * CGFloat(done) / CGFloat(total))
+                                .animation(.easeOut(duration: 0.3), value: done)
+                        }
+                    }
+                    .frame(height: 5)
+                    Text("\(done) / \(total) eşleştirildi")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.55))
+                }
+                .frame(width: 240)
+            }
+        }
+        .padding(.vertical, 32)
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var stageTitle: String {
+        switch vm.similarStage {
+        case .form, .done: return ""
+        case .fetching:    return "Benzer parçalar aranıyor…"
+        case .matching:    return "YouTube’da eşleştiriliyor…"
+        case .creating:    return "Çalma listen oluşturuluyor…"
+        }
+    }
+
+    // MARK: Success
+
+    private func successCard(count: Int) -> some View {
+        VStack(spacing: 16) {
+            SuccessTick(color: Color.accentColor)
+            VStack(spacing: 4) {
+                Text("Liste oluşturuldu")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                Text("\(count) parça • sol menüde “Çalma listelerin”de")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.55))
+                    .multilineTextAlignment(.center)
+            }
+            Button(action: { vm.finishSimilarPlaylist() }) {
+                Text("Tamam")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 26).padding(.vertical, 8)
+                    .background(Capsule().fill(Color.accentColor))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.defaultAction)  // Enter confirms
+        }
+        .padding(.vertical, 30)
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: Shared field helpers (mirrors CreatePlaylistOverlay)
+
+    private func field(_ placeholder: String, text: Binding<String>) -> some View {
+        TextField(placeholder, text: text)
+            .textFieldStyle(.plain)
+            .font(.system(size: 13))
+            .foregroundColor(.white)
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.white.opacity(0.08)))
+    }
+
+    private var privacyPicker: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "eye").font(.system(size: 11)).foregroundColor(.white.opacity(0.5))
+            Picker("", selection: $privacy) {
+                ForEach(NativeShellViewModel.PlaylistPrivacy.allCases) { p in Text(p.label).tag(p) }
+            }
+            .labelsHidden().pickerStyle(.menu).tint(.white)
+        }
+    }
+}
+
+/// The checkmark springs in when the build finishes.
+private struct SuccessTick: View {
+    let color: Color
+    @State private var shown = false
+
+    var body: some View {
+        Image(systemName: "checkmark.circle.fill")
+            .font(.system(size: 48))
+            .foregroundColor(color)
+            .scaleEffect(shown ? 1 : 0.3)
+            .opacity(shown ? 1 : 0)
+            .onAppear {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.55)) { shown = true }
+            }
+    }
+}
+
+/// A little equalizer that dances while the playlist is being built — nicer
+/// than a spinner and on-theme for a music app.
+private struct EqualizerBars: View {
+    let color: Color
+    @State private var animating = false
+    private let heights: [CGFloat] = [14, 30, 20, 36, 24]
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 5) {
+            ForEach(heights.indices, id: \.self) { i in
+                Capsule()
+                    .fill(color)
+                    .frame(width: 6, height: animating ? heights[i] : 8)
+                    .animation(.easeInOut(duration: 0.45)
+                        .repeatForever(autoreverses: true)
+                        .delay(Double(i) * 0.11), value: animating)
+            }
+        }
+        .frame(height: 40)
+        .onAppear { animating = true }
+    }
+}
+
 // MARK: - Rename / delete playlist overlays
 
 private struct RenamePlaylistOverlay: View {
@@ -1858,7 +2102,10 @@ private struct ChartSectionView: View {
                         Button { vm.startRadio(track) } label: {
                             Label("Radyo başlat", systemImage: "dot.radiowaves.left.and.right")
                         }
-                        Divider()
+                        Button { vm.startSimilarPlaylist(seed: track) } label: {
+                            Label("Benzerlerinden liste oluştur", systemImage: "square.stack.3d.up")
+                        }
+                                                Divider()
                         Menu {
                             Button { vm.beginCreatePlaylist(addingVideoId: track.id) } label: {
                                 Label("Yeni liste oluştur", systemImage: "plus")
@@ -2520,16 +2767,28 @@ private struct PlaylistDetailView: View {
         .padding(.vertical, 20)
     }
 
+    /// This collection is the one feeding the player AND audio is running.
+    private var isThisPlaying: Bool {
+        vm.isNowPlayingCollection(playlist) && media.nowPlaying.isPlaying
+    }
+
     private var playButton: some View {
-        Button(action: { vm.playPlaylist(displayedTracks) }) {
-            Image(systemName: "play.fill")
+        Button(action: {
+            // Already this playlist → toggle; otherwise (re)start it.
+            if vm.isNowPlayingCollection(playlist) {
+                media.run("playpause")
+            } else {
+                vm.playPlaylist(displayedTracks)
+            }
+        }) {
+            Image(systemName: isThisPlaying ? "pause.fill" : "play.fill")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundColor(prefs.theme.isDark ? .black : .white)
                 .frame(width: 40, height: 40)
                 .background(Circle().fill(accentGreen))
         }
         .buttonStyle(.plain)
-        .help("Oynat")
+        .help(isThisPlaying ? "Duraklat" : "Oynat")
     }
 
     private var shuffleButton: some View {
@@ -2692,7 +2951,10 @@ private struct PlaylistDetailView: View {
                                      showAlbum: showAlbumColumn,
                                      selected: selectedIDs.contains(track.id),
                                      fallbackThumbnailURL: playlist.thumbnailURL)
-                                .opacity(draggedSetVideoId == track.setVideoId ? 0.4 : 1)
+                                // Only dim the row actually being dragged. Guard
+                                // the nil case: a freshly-built list's rows have
+                                // no setVideoId yet, and nil == nil would dim all.
+                                .opacity(draggedSetVideoId != nil && draggedSetVideoId == track.setVideoId ? 0.4 : 1)
                         }
                         .buttonStyle(.plain)
                         .contextMenu { trackContextMenu(for: track) }
@@ -2729,7 +2991,10 @@ private struct PlaylistDetailView: View {
         Button { vm.startRadio(t) } label: {
             Label("Radyo başlat", systemImage: "dot.radiowaves.left.and.right")
         }
-        Divider()
+        Button { vm.startSimilarPlaylist(seed: t) } label: {
+            Label("Benzerlerinden liste oluştur", systemImage: "square.stack.3d.up")
+        }
+                Divider()
         Menu {
             Button { vm.beginCreatePlaylist(addingVideoId: t.id) } label: {
                 Label("Yeni liste oluştur", systemImage: "plus")
@@ -3006,7 +3271,10 @@ private struct PlayerBar: View {
             Button { vm.startRadio(t) } label: {
                 Label("Radyo başlat", systemImage: "dot.radiowaves.left.and.right")
             }
-            if !np.artist.isEmpty {
+            Button { vm.startSimilarPlaylist(seed: t) } label: {
+                Label("Benzerlerinden liste oluştur", systemImage: "square.stack.3d.up")
+            }
+                        if !np.artist.isEmpty {
                 Button { vm.openArtistByName(np.artist) } label: {
                     Label("Sanatçıya git", systemImage: "music.mic")
                 }

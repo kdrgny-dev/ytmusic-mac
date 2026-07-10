@@ -964,6 +964,200 @@ final class NativeShellViewModel: ObservableObject {
         showToast("Radyo başlatılıyor")
     }
 
+    // MARK: - Similar-track playlist (Last.fm)
+
+    private let lastfm = LastfmClient()
+
+    /// Progress through the build, driving the overlay's animation.
+    enum SimilarStage: Equatable {
+        case form                          // naming / privacy, before we start
+        case fetching                      // asking Last.fm
+        case matching(done: Int, total: Int)
+        case creating                      // writing the YT playlist
+        case done(count: Int)              // success — waiting for the user's OK
+    }
+
+    /// Non-nil while the "similar playlist" overlay is up; carries the seed.
+    @Published private(set) var similarSeed: TrackSummary?
+    @Published private(set) var similarStage: SimilarStage = .form
+    /// The finished list, held until the user taps "Tamam" so we open it then.
+    private var pendingSimilarSummary: PlaylistSummary?
+    /// Its tracks (from the matching step), so the page renders without waiting.
+    private var pendingSimilarTracks: [TrackSummary] = []
+    /// A sensible default the overlay pre-fills; the user can edit it.
+    var similarDefaultTitle: String {
+        guard let s = similarSeed else { return "" }
+        return "\(s.title) — Benzerler"
+    }
+
+    /// Open the naming overlay. The heavy work waits for `confirmSimilarPlaylist`.
+    func startSimilarPlaylist(seed: TrackSummary) {
+        guard auth.isAuthenticated else { showToast("Liste için YT Music'e giriş yap"); return }
+        guard lastfm.isConfigured else { showToast("Last.fm anahtarı ayarlı değil"); return }
+        guard !ArtistName.primary(seed.artist).isEmpty, !seed.title.isEmpty else {
+            showToast("Bu parça için liste yapılamıyor"); return
+        }
+        similarStage = .form
+        similarSeed = seed
+    }
+
+    func cancelSimilarPlaylist() {
+        // Only dismissable from the form step; a build in flight keeps running.
+        guard similarStage == .form else { return }
+        similarSeed = nil
+    }
+
+    /// "Tamam" on the success card: close the overlay and NOW open the list
+    /// (without playing it). Deferring the open to here also gives YT a few
+    /// seconds to index the new playlist, so its tracks actually load.
+    func finishSimilarPlaylist() {
+        guard case .done = similarStage else { return }
+        let summary = pendingSimilarSummary
+        let known = pendingSimilarTracks
+        pendingSimilarSummary = nil
+        pendingSimilarTracks = []
+        similarSeed = nil
+        if let summary { openCreatedPlaylist(summary, known: known) }
+    }
+
+    /// The real work: Last.fm → match → PERMANENT playlist → play it. Unlike
+    /// `startRadio` this IS a saved playlist. Recommendations come from Last.fm
+    /// (community data), not YT's opaque radio — the whole point.
+    func confirmSimilarPlaylist(title: String, privacy: PlaylistPrivacy) {
+        guard let seed = similarSeed else { return }
+        let artist = ArtistName.primary(seed.artist)
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? similarDefaultTitle
+            : title.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        similarStage = .fetching
+        Task {
+            let candidates = await lastfm.recommendations(artist: artist, track: seed.title, target: 30)
+            guard !candidates.isEmpty else {
+                similarSeed = nil; showToast("Benzer parça bulunamadı"); return
+            }
+
+            similarStage = .matching(done: 0, total: candidates.count)
+            let matched = await matchToTracks(candidates) { [weak self] done, total in
+                self?.similarStage = .matching(done: done, total: total)
+            }
+
+            // Seed leads; YT's DEDUPE_OPTION_SKIP backs this up, but dedup here
+            // too so the seed can't reappear and the count stays honest. Keep
+            // the full TrackSummary so the list can render before YT indexes it.
+            var chosen = [seed]
+            var seen: Set<String> = [seed.id]
+            for t in matched where !seen.contains(t.id) { seen.insert(t.id); chosen.append(t) }
+            guard chosen.count > 1 else {
+                similarSeed = nil; showToast("Eşleşen parça bulunamadı"); return
+            }
+            let ids = chosen.map(\.id)
+
+            similarStage = .creating
+            do {
+                // createPlaylist takes an initial batch; the rest follows in an edit.
+                let head = Array(ids.prefix(90))
+                let tail = Array(ids.dropFirst(90))
+                guard let playlistId = try await client.createPlaylist(
+                    title: name,
+                    description: "\(seed.title) • \(artist) — Last.fm benzerleri",
+                    privacy: privacy.rawValue,
+                    videoIds: head)
+                else { similarSeed = nil; showToast("Liste oluşturulamadı"); return }
+
+                if !tail.isEmpty {
+                    _ = try? await client.addToPlaylist(playlistId: playlistId, videoIds: tail)
+                }
+
+                let summary = PlaylistSummary(id: playlistId, title: name,
+                                              thumbnailURL: seed.thumbnailURL)
+                // Optimistic: YT's library index lags a few seconds behind
+                // create, so drop it into the sidebar now instead of waiting.
+                if !playlists.contains(where: { $0.id == playlistId }) {
+                    playlists.insert(summary, at: 0)
+                }
+                // Hold the list AND its tracks; "Tamam" opens it. Don't play —
+                // the user asked to just save, not start playback.
+                pendingSimilarSummary = summary
+                pendingSimilarTracks = chosen
+                similarStage = .done(count: chosen.count)
+                Task { await loadPlaylists() }  // reconcile with the server later
+            } catch {
+                similarSeed = nil; showToast("Liste oluşturulamadı")
+            }
+        }
+    }
+
+    /// Open a just-created playlist natively (no playback). We already know its
+    /// tracks from the matching step, so render them immediately — no waiting
+    /// on YT's index, no "Şarkılar yüklenemedi". Then reconcile in the
+    /// background so setVideoId/duration fill in (needed to remove/reorder).
+    private func openCreatedPlaylist(_ p: PlaylistSummary, known: [TrackSummary]) {
+        pushHistory()
+        selectedPlaylist = p
+        mainSection = .playlist(p)
+        tracks = known
+        tracksError = nil
+        loadingTracks = false
+        watchPlaylistId = p.playlistURLId
+        Task {
+            for delaySec in [2.0, 3.0, 5.0, 8.0] {
+                try? await Task.sleep(nanoseconds: UInt64(delaySec * 1_000_000_000))
+                guard selectedPlaylist?.id == p.id else { return } // user navigated away
+                if let data = try? await client.browse(browseId: p.id) {
+                    let real = TrackParser.parse(data: data)
+                    if !real.isEmpty, selectedPlaylist?.id == p.id {
+                        tracks = real   // now with setVideoId + durations
+                        return
+                    }
+                }
+            }
+        }
+    }
+
+    /// Resolve each Last.fm candidate to a YouTube videoId via InnerTube song
+    /// search, ~6 lookups at a time (a friendly cap for YT). Preserves the
+    /// candidates' score order and drops the ones with no match. `onProgress`
+    /// fires after each batch so the overlay can count up.
+    private func matchToTracks(_ candidates: [SimilarCandidate],
+                               onProgress: @escaping (Int, Int) -> Void) async -> [TrackSummary] {
+        let indexed = Array(candidates.enumerated())
+        let total = indexed.count
+        var found: [(Int, TrackSummary)] = []
+        var completed = 0
+        let batch = 6
+        var i = 0
+        while i < indexed.count {
+            let slice = indexed[i..<min(i + batch, indexed.count)]
+            let part = await withTaskGroup(of: (Int, TrackSummary?).self) { group -> [(Int, TrackSummary)] in
+                for (idx, cand) in slice {
+                    group.addTask { [self] in
+                        (idx, await firstSongMatch(artist: cand.artist, track: cand.track))
+                    }
+                }
+                var acc: [(Int, TrackSummary)] = []
+                for await (idx, t) in group { if let t { acc.append((idx, t)) } }
+                return acc
+            }
+            found.append(contentsOf: part)
+            completed += slice.count
+            onProgress(completed, total)
+            i += batch
+        }
+        return found.sorted { $0.0 < $1.0 }.map(\.1)
+    }
+
+    /// The full search hit, not just its id — we keep title/artist/thumbnail so
+    /// the new playlist renders instantly, without waiting for YT to index it.
+    private func firstSongMatch(artist: String, track: String) async -> TrackSummary? {
+        guard let data = try? await client.search(query: "\(artist) \(track)",
+                                                  params: SearchKind.song.filterParam),
+              let r = SearchResultsParser.parse(data: data).first(where: { $0.kind == .song })
+        else { return nil }
+        return TrackSummary(id: r.id, title: r.title, artist: r.subtitle,
+                            duration: nil, thumbnailURL: r.thumbnailURL)
+    }
+
     /// Called by WebViewHolder when the JS bridge pushes a queue update.
     /// Body shape: `{ items: [{title, artist, thumbnail, isPlaying, index}], playingIndex, total }`.
     /// The DOM scrape is now only a safety net: if `/next` gives us nothing
