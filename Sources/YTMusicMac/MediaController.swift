@@ -62,6 +62,41 @@ final class MediaController: ObservableObject {
     private var lastArtworkURL: String = ""
     private var lastNotifiedTrackKey: String = ""
 
+    // MARK: - Listening history
+
+    /// `updateNowPlaying` is called from whichever thread the JS bridge
+    /// delivers on, and PlayTracker keeps mutable per-track state, so all
+    /// tracking hops onto one serial queue.
+    private let historyQueue = DispatchQueue(label: "com.ytmusicmac.history.tracker")
+    private let playTracker = PlayTracker { record in
+        PlayHistoryStore.shared?.record(record)
+    }
+
+    private func trackHistory(_ s: NowPlaying, currentTime: Double) {
+        guard Preferences.shared.historyEnabled else { return }
+        let snapshot = PlayTracker.Snapshot(
+            videoId: s.videoId, title: s.title, artist: s.artist,
+            duration: s.duration, position: currentTime, artworkURL: s.artworkURL)
+        historyQueue.async { [playTracker] in playTracker.update(snapshot) }
+    }
+
+    /// Write out the track in progress. Called on app quit — without this the
+    /// last listen of every session is lost.
+    func flushHistory() {
+        if Preferences.shared.historyEnabled {
+            historyQueue.sync { [playTracker] in playTracker.flush() }
+        }
+        // flush() hands the record to the store asynchronously; drain it before
+        // the process exits, and drain regardless of the toggle in case writes
+        // from earlier in the session are still queued.
+        PlayHistoryStore.shared?.waitForPendingWrites()
+    }
+
+    /// Drop the listen in progress when the user turns history off.
+    func resetHistoryTracking() {
+        historyQueue.async { [playTracker] in playTracker.reset() }
+    }
+
     func setup() {
         let cmd = MPRemoteCommandCenter.shared()
         cmd.playCommand.isEnabled = true
@@ -199,6 +234,7 @@ final class MediaController: ObservableObject {
         }
 
         publishNowPlaying(newState, currentTime: cur)
+        trackHistory(newState, currentTime: cur)
 
         if !artURL.isEmpty {
             if let cached = cachedArtwork(artURL) {

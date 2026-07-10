@@ -40,6 +40,12 @@ struct SettingsView: View {
                 Toggle("30 dk duraklatınca yeniden yükle (belleği boşaltır; oturumun açık kalır)",
                        isOn: $prefs.autoReloadOnIdle)
             }
+            Section("Dinleme geçmişi") {
+                Toggle("Dinlediklerimi kaydet", isOn: $prefs.historyEnabled)
+                Text("Çalan parçalar bu Mac'te yerel bir dosyaya yazılır; hiçbir yere gönderilmez. En çok dinlediğin sanatçı ve şarkı istatistikleri buradan üretilir. Bir parça, 30 saniye ya da süresinin yarısı çaldıysa sayılır.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
             Section("Yerel arayüz") {
                 Toggle("Yerel arayüz modu (YT'nin web arayüzünü SwiftUI kabuğuyla değiştirir)",
                        isOn: $prefs.nativeUIMode)

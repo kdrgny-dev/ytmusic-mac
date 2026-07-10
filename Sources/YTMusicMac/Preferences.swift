@@ -72,6 +72,17 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(categoryLayout.rawValue, forKey: Keys.categoryLayout) }
     }
 
+    /// Record what plays into a local SQLite file so the app can show the
+    /// listening stats YouTube Music itself never surfaces. Nothing leaves
+    /// the machine. Turning it off must also drop the listen in progress,
+    /// otherwise it would be written the next time a track changes.
+    @Published var historyEnabled: Bool {
+        didSet {
+            defaults.set(historyEnabled, forKey: Keys.historyEnabled)
+            if !historyEnabled { MediaController.shared.resetHistoryTracking() }
+        }
+    }
+
     private init() {
         self.categoryLayout = CategoryLayout(rawValue: defaults.string(forKey: Keys.categoryLayout) ?? "")
             ?? .largeGrid
@@ -83,6 +94,7 @@ final class Preferences: ObservableObject {
         self.crossfadeEnabled = defaults.object(forKey: Keys.crossfadeEnabled) as? Bool ?? true
         self.crossfadeDuration = defaults.object(forKey: Keys.crossfadeDuration) as? Double ?? 5
         self.nativeUIMode = defaults.bool(forKey: Keys.nativeUIMode)
+        self.historyEnabled = defaults.object(forKey: Keys.historyEnabled) as? Bool ?? true
         let raw = defaults.string(forKey: Keys.theme) ?? Theme.default.rawValue
         self.theme = Theme(rawValue: raw) ?? .default
     }
@@ -98,6 +110,7 @@ final class Preferences: ObservableObject {
         static let crossfadeDuration = "pref.crossfadeDuration"
         static let nativeUIMode = "pref.nativeUIMode"
         static let categoryLayout = "pref.categoryLayout"
+        static let historyEnabled = "pref.historyEnabled"
     }
 }
 

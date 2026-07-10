@@ -7,7 +7,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "YTMusicMac",
-            path: "Sources/YTMusicMac"
+            path: "Sources/YTMusicMac",
+            linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .testTarget(
             name: "YTMusicMacTests",

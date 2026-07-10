@@ -165,6 +165,7 @@ final class NativeShellViewModel: ObservableObject {
         case home
         case explore
         case history
+        case statistics
         case playlist(PlaylistSummary)
         case category(GenreChip)
         case artist(String)   // browseId; full data lives in artistDetail
@@ -255,6 +256,7 @@ final class NativeShellViewModel: ObservableObject {
         case .home: if !homeLoaded { Task { await loadHome() } }
         case .explore: if !exploreLoaded { Task { await loadExplore() } }
         case .history: Task { await loadHistory() }
+        case .statistics: loadStatistics()
         case .playlist(let p):
             selectedPlaylist = p
             Task { await loadTracks(for: p) }
@@ -599,6 +601,7 @@ final class NativeShellViewModel: ObservableObject {
         case .home:     reloadHome()
         case .explore:  reloadExplore()
         case .history:  reloadHistory()
+        case .statistics: loadStatistics()
         case .category(let g): Task { await loadCategory(g) }
         case .artist(let id):  Task { await loadArtist(browseId: id, title: artistDetail?.name ?? "") }
         case .playlist(let p): Task { await loadTracks(for: p) }
@@ -1195,6 +1198,41 @@ final class NativeShellViewModel: ObservableObject {
         mainSection = .history
         selectedPlaylist = nil
         Task { await loadHistory() }
+    }
+
+    // MARK: - Listening statistics
+
+    @Published var statsRange: StatsRange = .month {
+        didSet { if statsRange != oldValue { loadStatistics() } }
+    }
+    @Published private(set) var stats: ListeningStats?
+    @Published private(set) var statsLoading = false
+
+    func goStatistics() {
+        pushHistory()
+        mainSection = .statistics
+        selectedPlaylist = nil
+        loadStatistics()
+    }
+
+    /// Reads run against SQLite on a serial queue; keep them off the main
+    /// thread so a long history can't stutter the UI.
+    func loadStatistics() {
+        guard let store = PlayHistoryStore.shared else {
+            stats = .empty(statsRange)
+            return
+        }
+        let range = statsRange
+        statsLoading = true
+        Task.detached(priority: .userInitiated) {
+            let snapshot = store.snapshot(range: range)
+            await MainActor.run {
+                // A range switch mid-flight would otherwise paint stale numbers.
+                guard self.statsRange == range else { return }
+                self.stats = snapshot
+                self.statsLoading = false
+            }
+        }
     }
 
     func reloadHistory() { Task { await loadHistory() } }

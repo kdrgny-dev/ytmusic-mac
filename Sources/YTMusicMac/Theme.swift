@@ -102,6 +102,27 @@ enum Theme: String, CaseIterable, Identifiable {
     var borderColor: Color  { Color(hex: palette.border) }
     var isDark: Bool        { palette.isDark }
 
+    /// Text/icon color that stays legible ON TOP of `accentColor`. Hardcoding
+    /// white washes out on pale accents. 0.179 is where white and black ink
+    /// give equal WCAG contrast — anything brighter takes black. A saturated
+    /// mid-tone like Spotify's green (0.44) reads far better with black ink,
+    /// which a naive "is it dark?" threshold gets backwards.
+    var onAccentColor: Color {
+        Self.relativeLuminance(ofHex: palette.accent) > 0.179 ? .black : .white
+    }
+
+    static func relativeLuminance(ofHex hex: String) -> Double {
+        let s = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        var v: UInt64 = 0
+        Scanner(string: s).scanHexInt64(&v)
+        let channels = [Double((v >> 16) & 0xff), Double((v >> 8) & 0xff), Double(v & 0xff)]
+            .map { c -> Double in
+                let n = c / 255
+                return n <= 0.03928 ? n / 12.92 : pow((n + 0.055) / 1.055, 2.4)
+            }
+        return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+    }
+
     /// CSS injected into the `<style id="__ytm_theme__">` slot. We override
     /// both the modern `--yt-spec-*` variables and the older `--ytmusic-*`
     /// ones, plus a fallback `background` rule on the app shell to catch

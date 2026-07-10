@@ -528,7 +528,8 @@ private struct Sidebar: View {
             .init(id: "home",    icon: "house.fill",            label: "Ana sayfa",    action: { vm.goHome() }),
             .init(id: "explore", icon: "safari",                label: "Keşfet", action: { vm.goExplore() }),
             .init(id: "search",  icon: "magnifyingglass",       label: "Ara",  action: { vm.toggleSearch() }),
-            .init(id: "history", icon: "clock.arrow.circlepath", label: "Geçmiş", action: { vm.goHistory() })
+            .init(id: "history", icon: "clock.arrow.circlepath", label: "Geçmiş", action: { vm.goHistory() }),
+            .init(id: "statistics", icon: "chart.bar.fill", label: "İstatistikler", action: { vm.goStatistics() })
         ]
     }
 
@@ -766,6 +767,7 @@ private struct Sidebar: View {
         case "home":    return vm.mainSection == .home
         case "explore": return vm.mainSection == .explore
         case "history": return vm.mainSection == .history
+        case "statistics": return vm.mainSection == .statistics
         case "search":  return vm.isSearchVisible
         default:        return false
         }
@@ -1105,6 +1107,8 @@ private struct MainContent: View {
                 ExploreView(vm: vm)
             case .history:
                 HistoryView(vm: vm)
+            case .statistics:
+                StatisticsView(vm: vm)
             case .playlist(let p):
                 PlaylistDetailView(playlist: p, vm: vm)
             case .category:
