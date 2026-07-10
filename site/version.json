@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0",
-  "notes": "İstatistikler sayfası: en çok dinlediğin sanatçılar, şarkılar ve günlük dinleme grafiği. Geçmiş bu Mac'te yerel tutulur, hiçbir yere gönderilmez.",
+  "version": "0.4.0",
+  "notes": "Benzerlerinden liste oluştur: herhangi bir şarkıya sağ tıkla, Last.fm ile benzer parçaları bulup tek tıkla kalıcı bir çalma listesi yap — pencere değiştirmeden, anında. Ayrıca çalma listesi başlık oynat butonu artık gerçek durumu yansıtıyor.",
   "dmg": "https://github.com/kdrgny-dev/ytmusic-mac/releases/latest/download/YTMusic.dmg"
 }
