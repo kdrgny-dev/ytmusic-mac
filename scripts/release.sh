@@ -1,12 +1,18 @@
 #!/bin/bash
-# Cuts a release: bumps the version, builds, packages the DMG, and drops
-# both the DMG and its manifest into site/ ready for `vercel deploy`.
+# Cuts a release end to end: bumps the version, builds, packages the DMG,
+# publishes it to GitHub Releases, and deploys the update manifest.
 #
 #   ./scripts/release.sh 0.3 "Geçmiş sayfası ve arama önerileri"
 #
-# The manifest (site/version.json) is what the running app polls. It MUST
-# ship together with the DMG it describes — a manifest announcing a version
-# whose DMG isn't up yet sends every user to a stale download.
+# Single source of truth for the download: the DMG lives ONLY in GitHub
+# Releases. The site and the manifest both link to the release's permanent
+#   .../releases/latest/download/YTMusic.dmg
+# URL, so nothing ever has to copy a 2 MB binary into the repo again.
+#
+# The manifest (site/version.json) is what the running app polls for the
+# version number and notes. It MUST go live only AFTER the GitHub release
+# exists — a manifest announcing a version whose release isn't published yet
+# points `latest` at the old DMG.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -31,23 +37,38 @@ echo "→ $CURRENT → $VERSION"
 ./build.sh
 ./scripts/make_dmg.sh
 
-# 3. Stage both artefacts together.
-cp build/YTMusic.dmg site/YTMusic.dmg
+# 3. Manifest points at GitHub's permanent latest-download URL. This string
+#    never changes between releases, but rewrite it each time so an older
+#    checkout that still had the Vercel URL gets corrected.
+REPO="kdrgny-dev/ytmusic-mac"
 cat > site/version.json <<EOF
 {
   "version": "$VERSION",
   "notes": "$NOTES",
-  "dmg": "https://ytmusic-mac.vercel.app/YTMusic.dmg"
+  "dmg": "https://github.com/$REPO/releases/latest/download/YTMusic.dmg"
 }
 EOF
+echo "✓ site/version.json (v$VERSION)"
+
+# 4. Commit the version bump + manifest, tag, push.
+git commit -aqm "Release v$VERSION"
+git tag "v$VERSION"
+git push -q origin HEAD
+git push -q origin "v$VERSION"
+echo "✓ pushed commit + tag v$VERSION"
+
+# 5. Publish the DMG to GitHub Releases. This is what makes `latest/download`
+#    resolve — the site and manifest are useless until it exists. The asset
+#    MUST be named YTMusic.dmg for the permanent URL to hit it.
+gh release create "v$VERSION" build/YTMusic.dmg \
+  --title "v$VERSION" \
+  --notes "$NOTES"
+echo "✓ GitHub release v$VERSION published with DMG"
+
+# 6. Deploy the manifest LAST, now that `latest` resolves to this version.
+( cd site && vercel deploy --prod >/dev/null )
+echo "✓ site deployed"
 
 echo ""
-echo "✓ site/YTMusic.dmg  ($(ls -lh site/YTMusic.dmg | awk '{print $5}'))"
-echo "✓ site/version.json (v$VERSION)"
-echo ""
-echo "Next:"
-echo "  git commit -am \"Release v$VERSION\" && git tag v$VERSION"
-echo "  cd site && vercel deploy --prod"
-echo ""
-echo "Users see the update banner within 6 hours, or immediately via"
+echo "Done. Users see the update banner within 6 hours, or immediately via"
 echo "the app menu → Güncellemeleri Denetle."

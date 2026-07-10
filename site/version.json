@@ -1,5 +1,5 @@
 {
   "version": "0.3.0",
   "notes": "İstatistikler sayfası: en çok dinlediğin sanatçılar, şarkılar ve günlük dinleme grafiği. Geçmiş bu Mac'te yerel tutulur, hiçbir yere gönderilmez.",
-  "dmg": "https://ytmusic-mac.vercel.app/YTMusic.dmg"
+  "dmg": "https://github.com/kdrgny-dev/ytmusic-mac/releases/latest/download/YTMusic.dmg"
 }

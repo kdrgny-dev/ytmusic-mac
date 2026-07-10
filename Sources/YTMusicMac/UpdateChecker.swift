@@ -5,8 +5,10 @@ import Combine
 /// purpose: the app is ad-hoc signed, so an in-place self-update would trip
 /// Gatekeeper anyway. We just tell the user a new DMG exists and open it.
 ///
-/// The manifest lives next to the DMG at `/version.json`:
-/// `{ "version": "0.2", "notes": "…", "dmg": "https://…/YTMusic.dmg" }`
+/// The manifest is served from the site at `/version.json`, but the DMG it
+/// points to lives in GitHub Releases (the single download source):
+/// `{ "version": "0.2", "notes": "…",
+///    "dmg": "https://github.com/…/releases/latest/download/YTMusic.dmg" }`
 final class UpdateChecker: ObservableObject {
     static let shared = UpdateChecker()
 
