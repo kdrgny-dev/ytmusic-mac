@@ -18,6 +18,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${1:-}"
+# NOTES go into the GitHub release AND the update manifest — write them in
+# ENGLISH (the site, repo and releases are all English), not Turkish.
 NOTES="${2:-}"
 
 if [ -z "$VERSION" ]; then
