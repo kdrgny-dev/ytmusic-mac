@@ -8,12 +8,23 @@ enum LyricsCrawl {
         return min(max(time / duration, 0), 1)
     }
 
-    /// Best-effort "current line" index. Lyrics carry no timestamps, so we map
-    /// playback progress uniformly onto the line count — approximate but keeps
-    /// the highlighted line roughly in step with the song.
+    /// Best-effort "current line" index when lyrics carry no timestamps: map
+    /// playback progress uniformly onto the line count. Approximate — drifts on
+    /// intros/instrumentals — but keeps the highlight roughly in step.
     static func activeIndex(progress: Double, lineCount: Int) -> Int {
         guard lineCount > 0 else { return 0 }
         return min(max(Int(progress * Double(lineCount)), 0), lineCount - 1)
+    }
+
+    /// True line index for timestamped lyrics: the last line whose start time
+    /// has passed. Exact sync, honors seek/pause via `time`.
+    static func activeIndex(synced lines: [LyricsLine], time: Double) -> Int {
+        guard !lines.isEmpty else { return 0 }
+        var idx = 0
+        for (i, line) in lines.enumerated() {
+            if line.start <= time { idx = i } else { break }
+        }
+        return idx
     }
 }
 
@@ -22,20 +33,24 @@ enum LyricsCrawl {
 /// fade. Advances line-by-line with playback (no per-word highlight — YTM gives
 /// plain text with no timestamps).
 struct LyricsCrawlView: View {
-    let text: String
+    let lyrics: LyricsParser.Lyrics
     var textColor: Color = .primary
 
     @ObservedObject private var clock = PlaybackClock.shared
     @EnvironmentObject private var media: MediaController
 
     private var lines: [String] {
-        text.components(separatedBy: "\n")
+        if let s = lyrics.synced, !s.isEmpty { return s.map(\.text) }
+        return lyrics.text.components(separatedBy: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
     }
 
     private var activeIndex: Int {
-        LyricsCrawl.activeIndex(
+        if let s = lyrics.synced, !s.isEmpty {
+            return LyricsCrawl.activeIndex(synced: s, time: clock.time)
+        }
+        return LyricsCrawl.activeIndex(
             progress: LyricsCrawl.progress(time: clock.time,
                                            duration: media.nowPlaying.duration),
             lineCount: lines.count)
@@ -127,7 +142,7 @@ struct ClipCrawlScreen: View {
     @ViewBuilder
     private var content: some View {
         if let l = vm.lyrics {
-            LyricsCrawlView(text: l.text, textColor: .white.opacity(0.92))
+            LyricsCrawlView(lyrics: l, textColor: .white.opacity(0.92))
                 .padding(.horizontal, 60)
                 .padding(.top, 40)
         } else if vm.lyricsLoading {

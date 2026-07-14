@@ -89,4 +89,38 @@ final class LyricsParsersTests: XCTestCase {
         """.data(using: .utf8)!
         XCTAssertNil(LyricsParser.parse(data: json))
     }
+
+    // MARK: - TimedLyricsParser
+
+    func testTimedLyricsParserExtractsLinesAndTimes() {
+        let json = """
+        { "contents": { "elementRenderer": { "newElement": { "type": { "componentType": { "model": {
+            "timedLyricsModel": { "lyricsData": {
+                "timedLyricsData": [
+                  { "lyricLine": "First line",
+                    "cueRange": { "startTimeMilliseconds": "0", "endTimeMilliseconds": "3000", "metadata": { "id": "1" } } },
+                  { "lyricLine": "Second line",
+                    "cueRange": { "startTimeMilliseconds": "3200", "endTimeMilliseconds": "6000", "metadata": { "id": "2" } } }
+                ],
+                "sourceMessage": "Source: LyricFind"
+            }}
+        }}}}}}}
+        """.data(using: .utf8)!
+        let r = TimedLyricsParser.parse(data: json)
+        XCTAssertNotNil(r)
+        XCTAssertEqual(r?.lines.count, 2)
+        XCTAssertEqual(r?.lines.first?.text, "First line")
+        XCTAssertEqual(r?.lines.first?.start ?? -1, 0, accuracy: 0.001)
+        XCTAssertEqual(r?.lines.last?.start ?? -1, 3.2, accuracy: 0.001)
+        XCTAssertEqual(r?.source, "Source: LyricFind")
+    }
+
+    func testTimedLyricsParserReturnsNilForPlainResponse() {
+        let json = """
+        { "contents": { "sectionListRenderer": { "contents": [
+            { "musicDescriptionShelfRenderer": { "description": { "runs": [ { "text": "plain" } ] } } }
+        ]}}}
+        """.data(using: .utf8)!
+        XCTAssertNil(TimedLyricsParser.parse(data: json))
+    }
 }

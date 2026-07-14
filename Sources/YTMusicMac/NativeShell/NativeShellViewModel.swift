@@ -2093,6 +2093,17 @@ final class NativeShellViewModel: ObservableObject {
                 lyricsError = "Bu şarkı için sözler yok"
                 return
             }
+            // Try timestamped (karaoke) lyrics first via the ANDROID_MUSIC
+            // client; fall back to the web client's plain text if unavailable.
+            if let timedData = try? await client.browse(browseId: browseId, mobile: true),
+               let timed = TimedLyricsParser.parse(data: timedData) {
+                guard MediaController.shared.nowPlaying.videoId == videoId else { return }
+                lyrics = LyricsParser.Lyrics(
+                    text: timed.lines.map(\.text).joined(separator: "\n"),
+                    source: timed.source,
+                    synced: timed.lines)
+                return
+            }
             let lyricsData = try await client.browse(browseId: browseId)
             guard MediaController.shared.nowPlaying.videoId == videoId else { return }
             if let parsed = LyricsParser.parse(data: lyricsData) {
@@ -2807,10 +2818,18 @@ enum WatchNextParser {
 /// The body is a sectionList containing exactly one
 /// musicDescriptionShelfRenderer with the text in `description.runs`
 /// and the source/attribution in `footer.runs`.
+/// A single timed lyric line. `start` is seconds from the track's beginning.
+struct LyricsLine: Equatable {
+    let text: String
+    let start: Double
+}
+
 enum LyricsParser {
     struct Lyrics: Equatable {
         let text: String
         let source: String?
+        /// Present only when YTM served timestamped (karaoke) lyrics.
+        var synced: [LyricsLine]? = nil
     }
 
     static func parse(data: Data) -> Lyrics? {
@@ -2842,6 +2861,61 @@ enum LyricsParser {
               let runs = dict["runs"] as? [[String: Any]]
         else { return "" }
         return runs.compactMap { $0["text"] as? String }.joined()
+    }
+}
+
+/// Timestamped ("karaoke") lyrics from the ANDROID_MUSIC browse of an MPLYt…
+/// browseId. The lines sit at
+/// contents.elementRenderer.newElement.type.componentType.model.timedLyricsModel.lyricsData.timedLyricsData
+/// each carrying `lyricLine` text and a `cueRange.startTimeMilliseconds`.
+enum TimedLyricsParser {
+    struct Result: Equatable {
+        let lines: [LyricsLine]
+        let source: String?
+    }
+
+    static func parse(data: Data) -> Result? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        // The wrapper path can shift between Polymer versions, so find the
+        // timedLyricsModel wherever it lives rather than hard-walking keys.
+        var lyricsData: [String: Any]?
+        walk(json) { dict in
+            guard lyricsData == nil,
+                  let model = dict["timedLyricsModel"] as? [String: Any],
+                  let data = model["lyricsData"] as? [String: Any]
+            else { return }
+            lyricsData = data
+        }
+        guard let data = lyricsData,
+              let raw = data["timedLyricsData"] as? [[String: Any]]
+        else { return nil }
+
+        let lines: [LyricsLine] = raw.compactMap { item in
+            guard let text = item["lyricLine"] as? String,
+                  let cue = item["cueRange"] as? [String: Any],
+                  let start = msToSeconds(cue["startTimeMilliseconds"])
+            else { return nil }
+            return LyricsLine(text: text, start: start)
+        }
+        guard !lines.isEmpty else { return nil }
+        let source = data["sourceMessage"] as? String
+        return Result(lines: lines, source: (source?.isEmpty ?? true) ? nil : source)
+    }
+
+    /// YT sends the timestamp as a string ("10680"), but tolerate a number too.
+    private static func msToSeconds(_ v: Any?) -> Double? {
+        if let s = v as? String, let ms = Double(s) { return ms / 1000.0 }
+        if let n = v as? NSNumber { return n.doubleValue / 1000.0 }
+        return nil
+    }
+
+    private static func walk(_ node: Any, visit: ([String: Any]) -> Void) {
+        if let dict = node as? [String: Any] {
+            visit(dict)
+            for value in dict.values { walk(value, visit: visit) }
+        } else if let arr = node as? [Any] {
+            for value in arr { walk(value, visit: visit) }
+        }
     }
 }
 

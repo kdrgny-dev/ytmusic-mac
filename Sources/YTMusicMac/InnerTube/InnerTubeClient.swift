@@ -35,13 +35,16 @@ actor InnerTubeClient {
     /// `/browse` — fetches a YT Music "browse" page response. The browseId
     /// identifies what we want: `FEmusic_liked_playlists` for the user's
     /// playlist list, a playlist ID for its contents, etc.
-    func browse(browseId: String, params: String? = nil) async throws -> Data {
+    /// `mobile: true` sends the ANDROID_MUSIC client context, which is the
+    /// only way YT returns timestamped (karaoke) lyrics — the web client
+    /// only ever gives plain text.
+    func browse(browseId: String, params: String? = nil, mobile: Bool = false) async throws -> Data {
         var body: [String: Any] = [
-            "context": ["client": clientDict()],
+            "context": ["client": clientDict(mobile: mobile)],
             "browseId": browseId
         ]
         if let params = params { body["params"] = params }
-        return try await post("browse", body: body)
+        return try await post("browse", body: body, mobile: mobile)
     }
 
     /// `/browse` continuation — loads the next page of a list. The token
@@ -253,8 +256,20 @@ actor InnerTubeClient {
         ])
     }
 
-    private func clientDict() -> [String: Any] {
-        [
+    /// ANDROID_MUSIC version used only for timed-lyrics requests. YT rejects
+    /// stale mobile clients, so keep this easy to bump.
+    static let androidMusicVersion = "7.21.50"
+
+    private func clientDict(mobile: Bool = false) -> [String: Any] {
+        if mobile {
+            return [
+                "clientName": "ANDROID_MUSIC",
+                "clientVersion": Self.androidMusicVersion,
+                "hl": "en",
+                "gl": "US"
+            ]
+        }
+        return [
             "clientName": "WEB_REMIX",
             "clientVersion": "1.20240801.01.00",
             "hl": "en",
@@ -262,7 +277,7 @@ actor InnerTubeClient {
         ]
     }
 
-    private func post(_ endpoint: String, body: [String: Any]) async throws -> Data {
+    private func post(_ endpoint: String, body: [String: Any], mobile: Bool = false) async throws -> Data {
         var req = URLRequest(url: baseURL.appendingPathComponent(endpoint))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -270,10 +285,11 @@ actor InnerTubeClient {
         req.setValue("\(origin)/", forHTTPHeaderField: "Referer")
         req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
                      forHTTPHeaderField: "User-Agent")
-        // X-Youtube-Client-Name=67 is WEB_REMIX. Some endpoints key on
-        // this matching the context.client.clientName block.
-        req.setValue("67", forHTTPHeaderField: "X-Youtube-Client-Name")
-        req.setValue("1.20240801.01.00", forHTTPHeaderField: "X-Youtube-Client-Version")
+        // X-Youtube-Client-Name=67 is WEB_REMIX, 21 is ANDROID_MUSIC. Some
+        // endpoints key on this matching the context.client.clientName block.
+        req.setValue(mobile ? "21" : "67", forHTTPHeaderField: "X-Youtube-Client-Name")
+        req.setValue(mobile ? Self.androidMusicVersion : "1.20240801.01.00",
+                     forHTTPHeaderField: "X-Youtube-Client-Version")
         if let header = auth.sapisidHashHeader(origin: origin) {
             req.setValue(header, forHTTPHeaderField: "Authorization")
             req.setValue(origin, forHTTPHeaderField: "X-Origin")

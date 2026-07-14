@@ -3547,7 +3547,7 @@ private struct LyricsPanel: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let lyrics = vm.lyrics {
-            LyricsCrawlView(text: lyrics.text, textColor: .primary.opacity(0.92))
+            LyricsCrawlView(lyrics: lyrics, textColor: .primary.opacity(0.92))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.horizontal, 8)
         } else if let msg = vm.lyricsError {
