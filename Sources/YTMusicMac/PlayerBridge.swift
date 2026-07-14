@@ -590,6 +590,27 @@ enum PlayerBridge {
             };
             document.body.appendChild(b);
           }
+          // Title + artist to the right of the back button, so it's clear
+          // whose clip this is.
+          if (!document.getElementById('__ytm_clip_meta')) {
+            var titleEl = q('.title.ytmusic-player-bar') || q('.content-info-wrapper .title');
+            var artistEl = q('.byline.ytmusic-player-bar') || q('.subtitle.ytmusic-player-bar');
+            var m = document.createElement('div');
+            m.id = '__ytm_clip_meta';
+            m.style.cssText = 'position:fixed;top:14px;left:150px;z-index:2147483646;'
+              + 'color:#fff;font-family:-apple-system,sans-serif;pointer-events:none;'
+              + 'text-shadow:0 1px 3px rgba(0,0,0,0.6);max-width:60vw;';
+            var t = document.createElement('div');
+            t.textContent = titleEl ? titleEl.textContent.trim() : '';
+            t.style.cssText = 'font:600 14px -apple-system,sans-serif;white-space:nowrap;'
+              + 'overflow:hidden;text-overflow:ellipsis;';
+            var a = document.createElement('div');
+            a.textContent = artistEl ? artistEl.textContent.trim() : '';
+            a.style.cssText = 'font:400 12px -apple-system,sans-serif;opacity:0.75;'
+              + 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+            m.appendChild(t); m.appendChild(a);
+            document.body.appendChild(m);
+          }
           // Confirm a REAL video is playing (audio-only tracks keep
           // videoHeight === 0). If nothing shows after ~5s, tell native so
           // it can bail out cleanly instead of leaving a black screen.
@@ -621,6 +642,8 @@ enum PlayerBridge {
           unpinVideo();
           var b = document.getElementById('__ytm_clip_back');
           if (b) b.remove();
+          var m = document.getElementById('__ytm_clip_meta');
+          if (m) m.remove();
           switchAV(false); // back to the audio-only "Song" version
         } catch (e) {}
       };

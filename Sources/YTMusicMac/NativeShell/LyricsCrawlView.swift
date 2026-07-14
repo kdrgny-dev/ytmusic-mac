@@ -8,63 +8,82 @@ enum LyricsCrawl {
         return min(max(time / duration, 0), 1)
     }
 
-    /// Vertical offset so lyrics crawl bottom→top over the song.
-    /// progress 0 → content sits just below the viewport (offset == viewport);
-    /// progress 1 → content has fully exited the top (offset == -content).
-    static func offset(progress: Double, content: CGFloat, viewport: CGFloat) -> CGFloat {
-        viewport - CGFloat(progress) * (content + viewport)
+    /// Best-effort "current line" index. Lyrics carry no timestamps, so we map
+    /// playback progress uniformly onto the line count — approximate but keeps
+    /// the highlighted line roughly in step with the song.
+    static func activeIndex(progress: Double, lineCount: Int) -> Int {
+        guard lineCount > 0 else { return 0 }
+        return min(max(Int(progress * Double(lineCount)), 0), lineCount - 1)
     }
 }
 
-private struct CrawlHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = max(value, nextValue())
-    }
-}
-
-/// Star-Wars-style lyric crawl. Plain text (no timestamps) scrolled bottom→top
-/// paced by playback position, so it stays roughly in sync and honors seek/pause.
-/// Timestamps are unavailable from YTM, so there is no per-line highlight.
+/// Karaoke-style lyric view: the estimated current line sits centered, large and
+/// crisp; neighbors shrink and fade above and below, with a soft top/bottom edge
+/// fade. Advances line-by-line with playback (no per-word highlight — YTM gives
+/// plain text with no timestamps).
 struct LyricsCrawlView: View {
     let text: String
     var textColor: Color = .primary
 
     @ObservedObject private var clock = PlaybackClock.shared
     @EnvironmentObject private var media: MediaController
-    @State private var contentHeight: CGFloat = 0
 
-    private var lines: [String] { text.components(separatedBy: "\n") }
+    private var lines: [String] {
+        text.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    private var activeIndex: Int {
+        LyricsCrawl.activeIndex(
+            progress: LyricsCrawl.progress(time: clock.time,
+                                           duration: media.nowPlaying.duration),
+            lineCount: lines.count)
+    }
 
     var body: some View {
         GeometryReader { geo in
-            let p = LyricsCrawl.progress(time: clock.time,
-                                         duration: media.nowPlaying.duration)
-            let y = LyricsCrawl.offset(progress: p,
-                                       content: contentHeight,
-                                       viewport: geo.size.height)
-            VStack(spacing: 10) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    Text(line.isEmpty ? " " : line)
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundColor(textColor)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 18) {
+                        Color.clear.frame(height: geo.size.height * 0.44)
+                        ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                            lineView(i, line).id(i)
+                        }
+                        Color.clear.frame(height: geo.size.height * 0.44)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
+                .onChange(of: activeIndex) { idx in
+                    withAnimation(.easeInOut(duration: 0.5)) {
+                        proxy.scrollTo(idx, anchor: .center)
+                    }
+                }
+                .onAppear { proxy.scrollTo(activeIndex, anchor: .center) }
             }
-            .background(GeometryReader { g in
-                Color.clear.preference(key: CrawlHeightKey.self, value: g.size.height)
-            })
-            .frame(width: geo.size.width, alignment: .top)
-            .offset(y: y)
-            .animation(.linear(duration: 0.25), value: y)
         }
-        .onPreferenceChange(CrawlHeightKey.self) { contentHeight = $0 }
-        .clipped()
         .mask(
-            LinearGradient(colors: [.clear, .black, .black, .clear],
-                           startPoint: .top, endPoint: .bottom)
+            LinearGradient(stops: [
+                .init(color: .clear, location: 0.0),
+                .init(color: .black, location: 0.30),
+                .init(color: .black, location: 0.70),
+                .init(color: .clear, location: 1.0),
+            ], startPoint: .top, endPoint: .bottom)
         )
+    }
+
+    @ViewBuilder
+    private func lineView(_ i: Int, _ line: String) -> some View {
+        let d = abs(i - activeIndex)
+        let isActive = d == 0
+        Text(line)
+            .font(.system(size: isActive ? 25 : 17,
+                          weight: isActive ? .bold : .medium))
+            .foregroundColor(textColor.opacity(isActive ? 1 : max(0.18, 0.55 - Double(d) * 0.12)))
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .animation(.easeInOut(duration: 0.3), value: isActive)
     }
 }
 
@@ -78,7 +97,7 @@ struct ClipCrawlScreen: View {
         ZStack {
             backdrop
             content
-            closeButton
+            topBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environment(\.colorScheme, .dark)
@@ -102,8 +121,9 @@ struct ClipCrawlScreen: View {
     @ViewBuilder
     private var content: some View {
         if let l = vm.lyrics {
-            LyricsCrawlView(text: l.text, textColor: .white.opacity(0.9))
+            LyricsCrawlView(text: l.text, textColor: .white.opacity(0.92))
                 .padding(.horizontal, 60)
+                .padding(.top, 40)
         } else if vm.lyricsLoading {
             ProgressView().tint(.white)
         } else {
@@ -113,9 +133,9 @@ struct ClipCrawlScreen: View {
         }
     }
 
-    private var closeButton: some View {
+    private var topBar: some View {
         VStack {
-            HStack {
+            HStack(spacing: 14) {
                 Button(action: { vm.exitClipCrawl() }) {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 14, weight: .semibold))
@@ -125,6 +145,19 @@ struct ClipCrawlScreen: View {
                 }
                 .buttonStyle(.plain)
                 .help("Kapat")
+
+                if media.nowPlaying.hasTrack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(media.nowPlaying.title)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                        Text(media.nowPlaying.artist)
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.7))
+                            .lineLimit(1)
+                    }
+                }
                 Spacer()
             }
             Spacer()

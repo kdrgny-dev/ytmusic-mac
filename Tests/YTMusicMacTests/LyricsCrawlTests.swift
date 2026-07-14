@@ -14,24 +14,20 @@ final class LyricsCrawlTests: XCTestCase {
         XCTAssertEqual(LyricsCrawl.progress(time: 50, duration: 100), 0.5, accuracy: 0.0001)
     }
 
-    func testOffsetStartsBelowViewport() {
-        // progress 0 → content sits just below the viewport (offset == viewport)
-        XCTAssertEqual(
-            LyricsCrawl.offset(progress: 0, content: 400, viewport: 200),
-            200, accuracy: 0.0001)
+    func testActiveIndexEmptyIsZero() {
+        XCTAssertEqual(LyricsCrawl.activeIndex(progress: 0.5, lineCount: 0), 0)
     }
 
-    func testOffsetEndsAboveViewport() {
-        // progress 1 → content fully exited the top (offset == -content)
-        XCTAssertEqual(
-            LyricsCrawl.offset(progress: 1, content: 400, viewport: 200),
-            -400, accuracy: 0.0001)
+    func testActiveIndexStart() {
+        XCTAssertEqual(LyricsCrawl.activeIndex(progress: 0, lineCount: 10), 0)
     }
 
-    func testOffsetMidpoint() {
-        // viewport 200, content 100 → 200 - 0.5*(300) = 50
-        XCTAssertEqual(
-            LyricsCrawl.offset(progress: 0.5, content: 100, viewport: 200),
-            50, accuracy: 0.0001)
+    func testActiveIndexEndClampsToLastLine() {
+        // progress 1 must not overflow to lineCount
+        XCTAssertEqual(LyricsCrawl.activeIndex(progress: 1, lineCount: 10), 9)
+    }
+
+    func testActiveIndexMidpoint() {
+        XCTAssertEqual(LyricsCrawl.activeIndex(progress: 0.5, lineCount: 10), 5)
     }
 }
