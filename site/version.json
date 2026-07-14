@@ -1,5 +1,5 @@
 {
-  "version": "0.4.0",
-  "notes": "Create similar playlists: right-click any song, pull similar tracks from Last.fm and save a permanent playlist in one click — no window switching, no leaving the app. The playlist header play button now reflects real playback state.",
+  "version": "0.5.0",
+  "notes": "Search is now a full page like Explore and History, not a pop-up dialog. Lyrics are time-synced and follow the song line by line in the now-playing screen and side panel. A new music-video Clip mode plays the video full-window, and shows a flowing lyric view when a track has no video. Track lists now highlight the exact song that is playing and reveal a play button on hover.",
   "dmg": "https://github.com/kdrgny-dev/ytmusic-mac/releases/latest/download/YTMusic.dmg"
 }
