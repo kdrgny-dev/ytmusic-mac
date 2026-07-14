@@ -62,13 +62,6 @@ struct NativeShellView: View {
                     .frame(height: 72)
             }
 
-            if vm.isSearchVisible {
-                SearchOverlay(vm: vm)
-                    .environment(\.colorScheme, .dark) // dark HUD on any theme
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                    .zIndex(20)
-            }
-
             if vm.isCreatePlaylistVisible {
                 CreatePlaylistOverlay(vm: vm)
                     .transition(.opacity.combined(with: .scale(scale: 0.98)))
@@ -97,6 +90,12 @@ struct NativeShellView: View {
                 NowPlayingScreen(vm: vm)
                     .transition(.move(edge: .bottom))
                     .zIndex(40)
+            }
+
+            if vm.clipSurface != .none {
+                ClipCrawlScreen(vm: vm)
+                    .transition(.opacity)
+                    .zIndex(45)
             }
 
             if let msg = vm.toast {
@@ -130,7 +129,7 @@ struct NativeShellView: View {
         .animation(.easeInOut(duration: 0.18), value: vm.isLyricsVisible)
         .animation(.easeInOut(duration: 0.18), value: vm.isThemePickerVisible)
         .animation(.easeInOut(duration: 0.28), value: vm.isNowPlayingVisible)
-        .animation(.easeInOut(duration: 0.18), value: vm.isSearchVisible)
+        .animation(.easeInOut(duration: 0.22), value: vm.clipSurface)
         .animation(.easeInOut(duration: 0.18), value: vm.isCreatePlaylistVisible)
         // Without this the overlay's .transition has no animation scope to run
         // in and gets stuck half-dismissed — a translucent film over the page.
@@ -234,36 +233,19 @@ private struct UpdateBar: View {
 
 // MARK: - Search overlay
 
-private struct SearchOverlay: View {
+private struct SearchView: View {
     @ObservedObject var vm: NativeShellViewModel
     @FocusState private var focused: Bool
 
     var body: some View {
-        ZStack {
-            // Dim backdrop — tap outside the card to dismiss.
-            Color.black.opacity(0.45)
-                .ignoresSafeArea()
-                .onTapGesture { vm.toggleSearch() }
-
-            VStack(spacing: 0) {
-                searchField
-                Divider().background(Color.primary.opacity(0.08))
-                tabBar
-                Divider().background(Color.primary.opacity(0.08))
-                resultsArea
-            }
-            .frame(maxWidth: 680)
-            .frame(maxHeight: 560)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(red: 0.08, green: 0.08, blue: 0.10))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.6), radius: 30, y: 12)
+        VStack(spacing: 0) {
+            searchField
+            Divider().background(Color.primary.opacity(0.08))
+            tabBar
+            Divider().background(Color.primary.opacity(0.08))
+            resultsArea
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear { focused = true }
     }
 
@@ -311,18 +293,6 @@ private struct SearchOverlay: View {
                 }
                 .buttonStyle(.plain)
             }
-            Button(action: { vm.toggleSearch() }) {
-                Text("⎋")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.primary.opacity(0.5))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(Color.primary.opacity(0.15), lineWidth: 1)
-                    )
-            }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -536,7 +506,7 @@ private struct Sidebar: View {
         [
             .init(id: "home",    icon: "house.fill",            label: "Ana sayfa",    action: { vm.goHome() }),
             .init(id: "explore", icon: "safari",                label: "Keşfet", action: { vm.goExplore() }),
-            .init(id: "search",  icon: "magnifyingglass",       label: "Ara",  action: { vm.toggleSearch() }),
+            .init(id: "search",  icon: "magnifyingglass",       label: "Ara",  action: { vm.goSearch() }),
             .init(id: "history", icon: "clock.arrow.circlepath", label: "Geçmiş", action: { vm.goHistory() }),
             .init(id: "statistics", icon: "chart.bar.fill", label: "İstatistikler", action: { vm.goStatistics() })
         ]
@@ -777,7 +747,7 @@ private struct Sidebar: View {
         case "explore": return vm.mainSection == .explore
         case "history": return vm.mainSection == .history
         case "statistics": return vm.mainSection == .statistics
-        case "search":  return vm.isSearchVisible
+        case "search":  return vm.mainSection == .search
         default:        return false
         }
     }
@@ -1353,6 +1323,8 @@ private struct MainContent: View {
                 HistoryView(vm: vm)
             case .statistics:
                 StatisticsView(vm: vm)
+            case .search:
+                SearchView(vm: vm)
             case .playlist(let p):
                 PlaylistDetailView(playlist: p, vm: vm)
             case .category:
@@ -1558,8 +1530,7 @@ private struct ArtistView: View {
     }
 
     private func isCurrentTrack(_ t: NativeShellViewModel.TrackSummary) -> Bool {
-        let np = media.nowPlaying
-        return np.hasTrack && np.title.caseInsensitiveCompare(t.title) == .orderedSame
+        media.nowPlaying.isCurrentTrack(id: t.id)
     }
 }
 
@@ -2129,8 +2100,7 @@ private struct ChartSectionView: View {
     }
 
     private func isCurrent(_ t: NativeShellViewModel.TrackSummary) -> Bool {
-        let np = media.nowPlaying
-        return np.hasTrack && np.title.caseInsensitiveCompare(t.title) == .orderedSame
+        media.nowPlaying.isCurrentTrack(id: t.id)
     }
 }
 
@@ -2950,7 +2920,9 @@ private struct PlaylistDetailView: View {
                                      zebra: idx.isMultiple(of: 2),
                                      showAlbum: showAlbumColumn,
                                      selected: selectedIDs.contains(track.id),
-                                     fallbackThumbnailURL: playlist.thumbnailURL)
+                                     fallbackThumbnailURL: playlist.thumbnailURL,
+                                     showClipIcon: isCurrentTrack(track) && media.nowPlaying.hasVideo,
+                                     onClip: { vm.enterClip() })
                                 // Only dim the row actually being dragged. Guard
                                 // the nil case: a freshly-built list's rows have
                                 // no setVideoId yet, and nil == nil would dim all.
@@ -2977,8 +2949,7 @@ private struct PlaylistDetailView: View {
     /// Match the row to nowPlaying by title. Accessed via the env object
     /// so SwiftUI re-renders this view tree when the current track changes.
     private func isCurrentTrack(_ t: NativeShellViewModel.TrackSummary) -> Bool {
-        let np = media.nowPlaying
-        return np.hasTrack && np.title.caseInsensitiveCompare(t.title) == .orderedSame
+        media.nowPlaying.isCurrentTrack(id: t.id)
     }
 
     @ViewBuilder
@@ -3072,6 +3043,10 @@ private struct TrackRow: View {
     /// Used when the track has no per-row artwork (album tracks share the
     /// album cover instead of shipping one thumbnail each).
     var fallbackThumbnailURL: String? = nil
+    /// Only the now-playing row whose track has a music-video counterpart
+    /// shows the clip icon (hasVideo is known only for the current track).
+    var showClipIcon: Bool = false
+    var onClip: (() -> Void)? = nil
 
     @State private var isHovered: Bool = false
 
@@ -3096,6 +3071,10 @@ private struct TrackRow: View {
                     Image(systemName: "speaker.wave.2.fill")
                         .font(.system(size: 11))
                         .foregroundColor(Color.accentColor)
+                } else if isHovered {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(.primary.opacity(0.7))
                 } else {
                     Text("\(index)")
                         .font(.system(size: 11, design: .monospaced))
@@ -3129,6 +3108,18 @@ private struct TrackRow: View {
                     .foregroundColor(.primary.opacity(0.55))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if showClipIcon {
+                Button(action: { onClip?() }) {
+                    Image(systemName: "film")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color.accentColor)
+                        .frame(width: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Klibi oynat")
             }
 
             Text(track.duration ?? "")
@@ -3556,25 +3547,9 @@ private struct LyricsPanel: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let lyrics = vm.lyrics {
-            ScrollView(.vertical, showsIndicators: true) {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(lyrics.text)
-                        .font(.system(size: 14))
-                        .foregroundColor(.primary.opacity(0.92))
-                        .lineSpacing(5)
-                        .multilineTextAlignment(.leading)
-                        .textSelection(.enabled)
-                    if let src = lyrics.source {
-                        Text(src)
-                            .font(.system(size: 11))
-                            .foregroundColor(.primary.opacity(0.45))
-                            .padding(.top, 4)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            LyricsCrawlView(lyrics: lyrics, textColor: .primary.opacity(0.92))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 8)
         } else if let msg = vm.lyricsError {
             VStack(spacing: 8) {
                 Image(systemName: "text.quote")

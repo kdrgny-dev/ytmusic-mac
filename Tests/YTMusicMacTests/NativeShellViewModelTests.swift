@@ -184,16 +184,52 @@ final class NativeShellViewModelTests: XCTestCase {
         vm.resetPlaylistOrder()
     }
 
-    // MARK: - Search tab state
+    // MARK: - Search as a tab
 
-    func testToggleSearchClearsQueryAndResetsTab() {
-        vm.isSearchVisible = true
-        vm.searchQuery = "Some query"
-        vm.searchTab = .album
-        vm.toggleSearch()   // closes
-        XCTAssertFalse(vm.isSearchVisible)
-        XCTAssertEqual(vm.searchQuery, "")
-        XCTAssertEqual(vm.searchTab, .playlist,
-                       "tab should reset to default on close")
+    func testGoSearchSetsMainSection() {
+        vm.goSearch()
+        XCTAssertEqual(vm.mainSection, .search)
+    }
+
+    func testGoSearchPushesHistorySoBackReturns() {
+        vm.goSearch()
+        XCTAssertEqual(vm.mainSection, .search)
+        vm.goBack()
+        XCTAssertEqual(vm.mainSection, .home,
+                       "back from search should return to the prior section")
+    }
+
+    func testOpenSongResultKeepsQuery() {
+        vm.goSearch()
+        vm.searchQuery = "there she goes"
+        let song = NativeShellViewModel.SearchResult(
+            id: "vid1", kind: .song, title: "There She Goes",
+            subtitle: "The La's", thumbnailURL: nil)
+        vm.openSearchResult(song)
+        XCTAssertEqual(vm.searchQuery, "there she goes",
+                       "opening a song plays it but must not wipe the search")
+        XCTAssertEqual(vm.mainSection, .search,
+                       "a song result plays in place; stay on the search tab")
+    }
+
+    // MARK: - Clip entry branching
+
+    func testClipEntryNoTrack() {
+        XCTAssertEqual(
+            NativeShellViewModel.clipEntry(hasTrack: false, hasVideo: false),
+            .noTrack)
+    }
+
+    func testClipEntryVideoWhenAvailable() {
+        XCTAssertEqual(
+            NativeShellViewModel.clipEntry(hasTrack: true, hasVideo: true),
+            .video)
+    }
+
+    func testClipEntryCrawlWhenNoVideo() {
+        XCTAssertEqual(
+            NativeShellViewModel.clipEntry(hasTrack: true, hasVideo: false),
+            .crawl,
+            "no music video → lyric crawl, not a black screen")
     }
 }

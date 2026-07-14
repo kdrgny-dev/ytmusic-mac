@@ -166,6 +166,7 @@ final class NativeShellViewModel: ObservableObject {
         case explore
         case history
         case statistics
+        case search
         case playlist(PlaylistSummary)
         case category(GenreChip)
         case artist(String)   // browseId; full data lives in artistDetail
@@ -257,6 +258,7 @@ final class NativeShellViewModel: ObservableObject {
         case .explore: if !exploreLoaded { Task { await loadExplore() } }
         case .history: Task { await loadHistory() }
         case .statistics: loadStatistics()
+        case .search: break
         case .playlist(let p):
             selectedPlaylist = p
             Task { await loadTracks(for: p) }
@@ -439,7 +441,6 @@ final class NativeShellViewModel: ObservableObject {
         let thumbnailURL: String?
     }
 
-    @Published var isSearchVisible: Bool = false
     @Published var searchQuery: String = "" {
         didSet { scheduleSearch() }
     }
@@ -602,6 +603,7 @@ final class NativeShellViewModel: ObservableObject {
         case .explore:  reloadExplore()
         case .history:  reloadHistory()
         case .statistics: loadStatistics()
+        case .search:   break
         case .category(let g): Task { await loadCategory(g) }
         case .artist(let id):  Task { await loadArtist(browseId: id, title: artistDetail?.name ?? "") }
         case .playlist(let p): Task { await loadTracks(for: p) }
@@ -713,7 +715,6 @@ final class NativeShellViewModel: ObservableObject {
         searchError = nil
         searchCache.removeAll()
         searchTab = .playlist
-        isSearchVisible = false
         isQueueVisible = false
         toast = nil
         toastTask?.cancel()
@@ -1297,31 +1298,92 @@ final class NativeShellViewModel: ObservableObject {
     /// video full-window. Reversible: exitClip restores everything.
     @Published private(set) var isClipMode: Bool = false
 
+    /// The SwiftUI overlay shown while clipping but the video isn't up:
+    /// `.loading` (a spinner while a real video buffers) or `.crawl` (the lyric
+    /// crawl when the track has no video). `.none` means the raised video (or
+    /// no clip session at all).
+    enum ClipSurface: Equatable { case none, loading, crawl }
+    @Published private(set) var clipSurface: ClipSurface = .none
+
+    private var clipActive: Bool { isClipMode || clipSurface != .none }
+
+    enum ClipEntry: Equatable { case noTrack, video, crawl }
+
+    /// Pure decision so the branch is unit-testable without touching singletons.
+    static func clipEntry(hasTrack: Bool, hasVideo: Bool) -> ClipEntry {
+        guard hasTrack else { return .noTrack }
+        return hasVideo ? .video : .crawl
+    }
+
     func enterClip() {
-        guard !isClipMode else { return }
-        guard MediaController.shared.nowPlaying.hasTrack else {
-            showToast("Çalan şarkı yok"); return
+        guard !clipActive else { return }
+        let np = MediaController.shared.nowPlaying
+        let entry = Self.clipEntry(hasTrack: np.hasTrack, hasVideo: np.hasVideo)
+        guard entry != .noTrack else { showToast("Çalan şarkı yok"); return }
+        // Show a spinner for video tracks (buffering) or the crawl for
+        // audio-only tracks, then start the WebView machinery underneath. The
+        // probe promotes to video (clipReady) or falls to crawl (clipUnavailable).
+        if entry == .video {
+            clipSurface = .loading
+        } else {
+            clipSurface = .crawl
+            loadLyricsForCurrentTrack()
         }
-        isClipMode = true
-        showToast("Klip açılıyor…")
-        // Reveal the video: drop the "hide YT UI" CSS, pin the <video>
-        // full-window, switch to the video track, and raise the WebView.
         FeatureBridge.shared.set("hideYTApp", enabled: false)
         FeatureBridge.shared.set("videoOnly", enabled: true)
         PrefBridge.shared.enterClip()
+    }
+
+    /// JS confirmed a real video frame — raise the WebView over the overlay.
+    func clipReady() {
+        guard clipActive, !isClipMode else { return }
+        clipSurface = .none
+        isClipMode = true
         MainWindowController.shared.setClipMode(true)
     }
 
-    /// JS couldn't find a real video track for this song — bail out cleanly.
-    func clipUnavailable() {
-        guard isClipMode else { return }
-        exitClip()
-        showToast("Bu şarkının klibi yok")
+    /// Track changed while clipping. If the new track has a video, keep waiting
+    /// on the video path (spinner, not the crawl) so we never flash lyrics then
+    /// jump to video. If it has none, go straight to the crawl.
+    func clipTrackChanged(hasVideo: Bool) {
+        guard clipActive else { return }
+        if hasVideo {
+            if !isClipMode { clipSurface = .loading }
+            // Already showing video → let it continue seamlessly.
+        } else {
+            dropToClipCrawl()
+        }
+    }
+
+    /// JS never saw a real video frame for this track — show the lyric crawl.
+    func clipUnavailable() { dropToClipCrawl() }
+
+    /// Fall back to the lyric crawl WITHOUT tearing down the WebView machinery,
+    /// so a later track that has a video can promote back via clipReady. Full
+    /// teardown only happens in exitClipCrawl / exitClip.
+    private func dropToClipCrawl() {
+        guard clipActive else { return }
+        if isClipMode {
+            isClipMode = false
+            MainWindowController.shared.setClipMode(false)
+        }
+        clipSurface = .crawl
+        loadLyricsForCurrentTrack()
+    }
+
+    func exitClipCrawl() {
+        clipSurface = .none
+        isClipMode = false
+        // Full teardown: stop the probe, unpin, restore CSS.
+        PrefBridge.shared.exitClip()
+        FeatureBridge.shared.set("videoOnly", enabled: false)
+        FeatureBridge.shared.set("hideYTApp", enabled: Preferences.shared.nativeUIMode)
     }
 
     func exitClip() {
-        guard isClipMode else { return }
+        guard clipActive else { return }
         isClipMode = false
+        clipSurface = .none
         PrefBridge.shared.exitClip()
         FeatureBridge.shared.set("videoOnly", enabled: false)
         // Restore the native shell's hidden-WebView state.
@@ -1492,15 +1554,12 @@ final class NativeShellViewModel: ObservableObject {
         WebViewHolder.shared.webView?.load(URLRequest(url: url))
     }
 
-    func toggleSearch() {
-        isSearchVisible.toggle()
-        if !isSearchVisible {
-            searchQuery = ""
-            searchResults = []
-            searchCache.removeAll()
-            searchError = nil
-            searchTab = .playlist
-        }
+    /// Search is a normal main-section tab now (not a modal). Navigating in
+    /// keeps the last query so returning to the tab restores it.
+    func goSearch() {
+        pushHistory()
+        mainSection = .search
+        selectedPlaylist = nil
     }
 
     /// Debounce typing so we don't fire a /search call per keystroke.
@@ -1573,10 +1632,6 @@ final class NativeShellViewModel: ObservableObject {
         case .artist:
             openArtist(browseId: r.id, name: r.title)
         }
-        isSearchVisible = false
-        searchQuery = ""
-        searchResults = []
-        searchCache.removeAll()
     }
 
     // MARK: - Track actions (context menu)
@@ -2055,6 +2110,17 @@ final class NativeShellViewModel: ObservableObject {
             let nextData = try await client.next(videoId: videoId)
             guard let browseId = WatchNextParser.extractLyricsBrowseId(data: nextData) else {
                 lyricsError = "Bu şarkı için sözler yok"
+                return
+            }
+            // Try timestamped (karaoke) lyrics first via the ANDROID_MUSIC
+            // client; fall back to the web client's plain text if unavailable.
+            if let timedData = try? await client.browse(browseId: browseId, mobile: true),
+               let timed = TimedLyricsParser.parse(data: timedData) {
+                guard MediaController.shared.nowPlaying.videoId == videoId else { return }
+                lyrics = LyricsParser.Lyrics(
+                    text: timed.lines.map(\.text).joined(separator: "\n"),
+                    source: timed.source,
+                    synced: timed.lines)
                 return
             }
             let lyricsData = try await client.browse(browseId: browseId)
@@ -2771,10 +2837,18 @@ enum WatchNextParser {
 /// The body is a sectionList containing exactly one
 /// musicDescriptionShelfRenderer with the text in `description.runs`
 /// and the source/attribution in `footer.runs`.
+/// A single timed lyric line. `start` is seconds from the track's beginning.
+struct LyricsLine: Equatable {
+    let text: String
+    let start: Double
+}
+
 enum LyricsParser {
     struct Lyrics: Equatable {
         let text: String
         let source: String?
+        /// Present only when YTM served timestamped (karaoke) lyrics.
+        var synced: [LyricsLine]? = nil
     }
 
     static func parse(data: Data) -> Lyrics? {
@@ -2806,6 +2880,61 @@ enum LyricsParser {
               let runs = dict["runs"] as? [[String: Any]]
         else { return "" }
         return runs.compactMap { $0["text"] as? String }.joined()
+    }
+}
+
+/// Timestamped ("karaoke") lyrics from the ANDROID_MUSIC browse of an MPLYt…
+/// browseId. The lines sit at
+/// contents.elementRenderer.newElement.type.componentType.model.timedLyricsModel.lyricsData.timedLyricsData
+/// each carrying `lyricLine` text and a `cueRange.startTimeMilliseconds`.
+enum TimedLyricsParser {
+    struct Result: Equatable {
+        let lines: [LyricsLine]
+        let source: String?
+    }
+
+    static func parse(data: Data) -> Result? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        // The wrapper path can shift between Polymer versions, so find the
+        // timedLyricsModel wherever it lives rather than hard-walking keys.
+        var lyricsData: [String: Any]?
+        walk(json) { dict in
+            guard lyricsData == nil,
+                  let model = dict["timedLyricsModel"] as? [String: Any],
+                  let data = model["lyricsData"] as? [String: Any]
+            else { return }
+            lyricsData = data
+        }
+        guard let data = lyricsData,
+              let raw = data["timedLyricsData"] as? [[String: Any]]
+        else { return nil }
+
+        let lines: [LyricsLine] = raw.compactMap { item in
+            guard let text = item["lyricLine"] as? String,
+                  let cue = item["cueRange"] as? [String: Any],
+                  let start = msToSeconds(cue["startTimeMilliseconds"])
+            else { return nil }
+            return LyricsLine(text: text, start: start)
+        }
+        guard !lines.isEmpty else { return nil }
+        let source = data["sourceMessage"] as? String
+        return Result(lines: lines, source: (source?.isEmpty ?? true) ? nil : source)
+    }
+
+    /// YT sends the timestamp as a string ("10680"), but tolerate a number too.
+    private static func msToSeconds(_ v: Any?) -> Double? {
+        if let s = v as? String, let ms = Double(s) { return ms / 1000.0 }
+        if let n = v as? NSNumber { return n.doubleValue / 1000.0 }
+        return nil
+    }
+
+    private static func walk(_ node: Any, visit: ([String: Any]) -> Void) {
+        if let dict = node as? [String: Any] {
+            visit(dict)
+            for value in dict.values { walk(value, visit: visit) }
+        } else if let arr = node as? [Any] {
+            for value in arr { walk(value, visit: visit) }
+        }
     }
 }
 

@@ -590,22 +590,68 @@ enum PlayerBridge {
             };
             document.body.appendChild(b);
           }
+          // Title + artist to the right of the back button, so it's clear
+          // whose clip this is.
+          if (!document.getElementById('__ytm_clip_meta')) {
+            var titleEl = q('.title.ytmusic-player-bar') || q('.content-info-wrapper .title');
+            var artistEl = q('.byline.ytmusic-player-bar') || q('.subtitle.ytmusic-player-bar');
+            var m = document.createElement('div');
+            m.id = '__ytm_clip_meta';
+            m.style.cssText = 'position:fixed;top:14px;left:150px;z-index:2147483646;'
+              + 'color:#fff;font-family:-apple-system,sans-serif;pointer-events:none;'
+              + 'text-shadow:0 1px 3px rgba(0,0,0,0.6);max-width:60vw;';
+            var t = document.createElement('div');
+            t.textContent = titleEl ? titleEl.textContent.trim() : '';
+            t.style.cssText = 'font:600 14px -apple-system,sans-serif;white-space:nowrap;'
+              + 'overflow:hidden;text-overflow:ellipsis;';
+            var a = document.createElement('div');
+            a.textContent = artistEl ? artistEl.textContent.trim() : '';
+            a.style.cssText = 'font:400 12px -apple-system,sans-serif;opacity:0.75;'
+              + 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+            m.appendChild(t); m.appendChild(a);
+            document.body.appendChild(m);
+          }
           // Confirm a REAL video is playing (audio-only tracks keep
           // videoHeight === 0). If nothing shows after ~5s, tell native so
           // it can bail out cleanly instead of leaving a black screen.
           if (__ytmClipProbe) clearInterval(__ytmClipProbe);
-          var tries = 0, sawVideo = false;
-          // Keep re-pinning for the WHOLE clip session — YT reflows the player
-          // on track changes / layout and would otherwise reclaim the <video>.
+          // Per-track state. On next/prev, YT resets to the Song (audio)
+          // version, so we must re-select video and re-evaluate each track.
+          var tries = 0, sawVideo = false, bailed = false, curVid = currentVideoId();
           __ytmClipProbe = setInterval(function() {
+            var nowVid = currentVideoId();
+            if (nowVid && nowVid !== curVid) {
+              // Track changed. Tell native whether this track has a video so it
+              // can keep the video path (spinner) or drop to the crawl without
+              // flashing lyrics. Re-select the video version if one exists.
+              curVid = nowVid; tries = 0; sawVideo = false; bailed = false;
+              var hv = hasVideoToggle();
+              if (hv) switchAV(true);
+              try { window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'clipTrackChanged', hasVideo: hv }); } catch (e) {}
+            }
             tries++;
             pinVideo(); // reparent + style, re-assert every tick
+            // Keep the title/artist label in step with track changes.
+            var mm = document.getElementById('__ytm_clip_meta');
+            if (mm && mm.children.length >= 2) {
+              var te = q('.title.ytmusic-player-bar') || q('.content-info-wrapper .title');
+              var ae = q('.byline.ytmusic-player-bar') || q('.subtitle.ytmusic-player-bar');
+              var nt = te ? te.textContent.trim() : '';
+              var na = ae ? ae.textContent.trim() : '';
+              if (mm.children[0].textContent !== nt) mm.children[0].textContent = nt;
+              if (mm.children[1].textContent !== na) mm.children[1].textContent = na;
+            }
             var v = q('video');
-            if (v && v.videoHeight > 0) sawVideo = true;
-            // No real video after ~5s → bail out cleanly.
-            if (!sawVideo && tries > 25) {
-              clearInterval(__ytmClipProbe); __ytmClipProbe = null;
-              unpinVideo();
+            if (v && v.videoHeight > 0) {
+              if (!sawVideo) {
+                sawVideo = true;
+                // Real frame exists → native raises the WebView over the crawl.
+                try { window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'clipReady' }); } catch (e) {}
+              }
+            } else if (!sawVideo && !bailed && tries > 12) {
+              // No real video for this track → stay on the crawl. Keep the probe
+              // running so a later track WITH video can promote back.
+              bailed = true;
               try { window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'clipUnavailable' }); } catch (e) {}
             }
           }, 300);
@@ -617,6 +663,8 @@ enum PlayerBridge {
           unpinVideo();
           var b = document.getElementById('__ytm_clip_back');
           if (b) b.remove();
+          var m = document.getElementById('__ytm_clip_meta');
+          if (m) m.remove();
           switchAV(false); // back to the audio-only "Song" version
         } catch (e) {}
       };

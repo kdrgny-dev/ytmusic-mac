@@ -262,14 +262,8 @@ struct NowPlayingScreen: View {
             } else if let err = vm.lyricsError {
                 Text(err).font(.system(size: 13)).foregroundColor(.white.opacity(0.5))
             } else if let lyrics = vm.lyrics {
-                ScrollView {
-                    Text(lyrics.text)
-                        .font(.system(size: 15))
-                        .foregroundColor(.white.opacity(0.85))
-                        .lineSpacing(6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
+                LyricsCrawlView(lyrics: lyrics, textColor: .white.opacity(0.85))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Text("Sözler yükleniyor…").font(.system(size: 13)).foregroundColor(.white.opacity(0.5))
             }
