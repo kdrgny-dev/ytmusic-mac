@@ -45,12 +45,12 @@ struct LyricsCrawlView: View {
         GeometryReader { geo in
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
-                    LazyVStack(spacing: 18) {
-                        Color.clear.frame(height: geo.size.height * 0.44)
+                    LazyVStack(spacing: 24) {
+                        Color.clear.frame(height: geo.size.height * 0.46)
                         ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
                             lineView(i, line).id(i)
                         }
-                        Color.clear.frame(height: geo.size.height * 0.44)
+                        Color.clear.frame(height: geo.size.height * 0.46)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -77,13 +77,15 @@ struct LyricsCrawlView: View {
         let d = abs(i - activeIndex)
         let isActive = d == 0
         Text(line)
-            .font(.system(size: isActive ? 25 : 17,
-                          weight: isActive ? .bold : .medium))
-            .foregroundColor(textColor.opacity(isActive ? 1 : max(0.18, 0.55 - Double(d) * 0.12)))
+            .font(.system(size: isActive ? 36 : 20,
+                          weight: isActive ? .bold : .medium,
+                          design: .rounded))
+            .foregroundColor(textColor.opacity(isActive ? 1 : max(0.12, 0.48 - Double(d) * 0.11)))
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
-            .padding(.horizontal, 24)
-            .animation(.easeInOut(duration: 0.3), value: isActive)
+            .padding(.horizontal, 28)
+            .scaleEffect(isActive ? 1 : 0.97, anchor: .center)
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isActive)
     }
 }
 
