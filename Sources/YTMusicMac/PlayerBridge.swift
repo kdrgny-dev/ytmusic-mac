@@ -621,11 +621,13 @@ enum PlayerBridge {
           __ytmClipProbe = setInterval(function() {
             var nowVid = currentVideoId();
             if (nowVid && nowVid !== curVid) {
-              // Track changed. Drop to the crawl immediately (no black frame),
-              // re-select the video version, and re-evaluate from scratch.
+              // Track changed. Tell native whether this track has a video so it
+              // can keep the video path (spinner) or drop to the crawl without
+              // flashing lyrics. Re-select the video version if one exists.
               curVid = nowVid; tries = 0; sawVideo = false; bailed = false;
-              switchAV(true);
-              try { window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'clipTrackChanged' }); } catch (e) {}
+              var hv = hasVideoToggle();
+              if (hv) switchAV(true);
+              try { window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'clipTrackChanged', hasVideo: hv }); } catch (e) {}
             }
             tries++;
             pinVideo(); // reparent + style, re-assert every tick
@@ -646,7 +648,7 @@ enum PlayerBridge {
                 // Real frame exists → native raises the WebView over the crawl.
                 try { window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'clipReady' }); } catch (e) {}
               }
-            } else if (!sawVideo && !bailed && tries > 15) {
+            } else if (!sawVideo && !bailed && tries > 12) {
               // No real video for this track → stay on the crawl. Keep the probe
               // running so a later track WITH video can promote back.
               bailed = true;

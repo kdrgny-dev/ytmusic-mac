@@ -1298,9 +1298,14 @@ final class NativeShellViewModel: ObservableObject {
     /// video full-window. Reversible: exitClip restores everything.
     @Published private(set) var isClipMode: Bool = false
 
-    /// Shown instead of a black screen when "Klip" is opened on a track with
-    /// no music video: a full-window lyric crawl.
-    @Published private(set) var isClipCrawlVisible: Bool = false
+    /// The SwiftUI overlay shown while clipping but the video isn't up:
+    /// `.loading` (a spinner while a real video buffers) or `.crawl` (the lyric
+    /// crawl when the track has no video). `.none` means the raised video (or
+    /// no clip session at all).
+    enum ClipSurface: Equatable { case none, loading, crawl }
+    @Published private(set) var clipSurface: ClipSurface = .none
+
+    private var clipActive: Bool { isClipMode || clipSurface != .none }
 
     enum ClipEntry: Equatable { case noTrack, video, crawl }
 
@@ -1311,66 +1316,74 @@ final class NativeShellViewModel: ObservableObject {
     }
 
     func enterClip() {
-        guard !isClipMode, !isClipCrawlVisible else { return }
+        guard !clipActive else { return }
         let np = MediaController.shared.nowPlaying
-        switch Self.clipEntry(hasTrack: np.hasTrack, hasVideo: np.hasVideo) {
-        case .noTrack:
-            showToast("Çalan şarkı yok")
-        case .video:
-            // Crawl-first: show lyrics immediately and load the video in the
-            // (still-hidden) WebView underneath. Only raise it once JS reports
-            // a real frame (clipReady). No black screen while it buffers, and
-            // false "hasVideo" tracks simply stay on the crawl forever.
-            isClipCrawlVisible = true
-            loadLyricsForCurrentTrack()
-            FeatureBridge.shared.set("hideYTApp", enabled: false)
-            FeatureBridge.shared.set("videoOnly", enabled: true)
-            PrefBridge.shared.enterClip()
-        case .crawl:
-            isClipCrawlVisible = true
+        let entry = Self.clipEntry(hasTrack: np.hasTrack, hasVideo: np.hasVideo)
+        guard entry != .noTrack else { showToast("Çalan şarkı yok"); return }
+        // Show a spinner for video tracks (buffering) or the crawl for
+        // audio-only tracks, then start the WebView machinery underneath. The
+        // probe promotes to video (clipReady) or falls to crawl (clipUnavailable).
+        if entry == .video {
+            clipSurface = .loading
+        } else {
+            clipSurface = .crawl
             loadLyricsForCurrentTrack()
         }
+        FeatureBridge.shared.set("hideYTApp", enabled: false)
+        FeatureBridge.shared.set("videoOnly", enabled: true)
+        PrefBridge.shared.enterClip()
     }
 
-    /// JS confirmed a real video frame — promote from the crawl to the raised
-    /// full-window video.
+    /// JS confirmed a real video frame — raise the WebView over the overlay.
     func clipReady() {
-        guard isClipCrawlVisible, !isClipMode else { return }
-        isClipCrawlVisible = false
+        guard clipActive, !isClipMode else { return }
+        clipSurface = .none
         isClipMode = true
         MainWindowController.shared.setClipMode(true)
     }
 
-    /// Track changed while clipping, or JS confirmed no video for this track:
-    /// fall back to the lyric crawl WITHOUT tearing down the WebView machinery,
+    /// Track changed while clipping. If the new track has a video, keep waiting
+    /// on the video path (spinner, not the crawl) so we never flash lyrics then
+    /// jump to video. If it has none, go straight to the crawl.
+    func clipTrackChanged(hasVideo: Bool) {
+        guard clipActive else { return }
+        if hasVideo {
+            if !isClipMode { clipSurface = .loading }
+            // Already showing video → let it continue seamlessly.
+        } else {
+            dropToClipCrawl()
+        }
+    }
+
+    /// JS never saw a real video frame for this track — show the lyric crawl.
+    func clipUnavailable() { dropToClipCrawl() }
+
+    /// Fall back to the lyric crawl WITHOUT tearing down the WebView machinery,
     /// so a later track that has a video can promote back via clipReady. Full
     /// teardown only happens in exitClipCrawl / exitClip.
     private func dropToClipCrawl() {
-        guard isClipMode || isClipCrawlVisible else { return }
+        guard clipActive else { return }
         if isClipMode {
             isClipMode = false
             MainWindowController.shared.setClipMode(false)
         }
-        isClipCrawlVisible = true
+        clipSurface = .crawl
         loadLyricsForCurrentTrack()
     }
 
-    func clipTrackChanged() { dropToClipCrawl() }
-
     func exitClipCrawl() {
-        isClipCrawlVisible = false
+        clipSurface = .none
+        isClipMode = false
         // Full teardown: stop the probe, unpin, restore CSS.
         PrefBridge.shared.exitClip()
         FeatureBridge.shared.set("videoOnly", enabled: false)
         FeatureBridge.shared.set("hideYTApp", enabled: Preferences.shared.nativeUIMode)
     }
 
-    /// JS never saw a real video frame for this track — show the lyric crawl.
-    func clipUnavailable() { dropToClipCrawl() }
-
     func exitClip() {
-        guard isClipMode else { return }
+        guard clipActive else { return }
         isClipMode = false
+        clipSurface = .none
         PrefBridge.shared.exitClip()
         FeatureBridge.shared.set("videoOnly", enabled: false)
         // Restore the native shell's hidden-WebView state.

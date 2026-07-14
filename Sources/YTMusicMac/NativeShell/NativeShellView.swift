@@ -92,7 +92,7 @@ struct NativeShellView: View {
                     .zIndex(40)
             }
 
-            if vm.isClipCrawlVisible {
+            if vm.clipSurface != .none {
                 ClipCrawlScreen(vm: vm)
                     .transition(.opacity)
                     .zIndex(45)
@@ -129,7 +129,7 @@ struct NativeShellView: View {
         .animation(.easeInOut(duration: 0.18), value: vm.isLyricsVisible)
         .animation(.easeInOut(duration: 0.18), value: vm.isThemePickerVisible)
         .animation(.easeInOut(duration: 0.28), value: vm.isNowPlayingVisible)
-        .animation(.easeInOut(duration: 0.22), value: vm.isClipCrawlVisible)
+        .animation(.easeInOut(duration: 0.22), value: vm.clipSurface)
         .animation(.easeInOut(duration: 0.18), value: vm.isCreatePlaylistVisible)
         // Without this the overlay's .transition has no animation scope to run
         // in and gets stuck half-dismissed — a translucent film over the page.

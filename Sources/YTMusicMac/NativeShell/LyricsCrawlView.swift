@@ -119,7 +119,6 @@ struct ClipCrawlScreen: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .environment(\.colorScheme, .dark)
         .onExitCommand { vm.exitClipCrawl() }
-        .onAppear { vm.loadLyricsForCurrentTrack() }
     }
 
     private var backdrop: some View {
@@ -141,6 +140,23 @@ struct ClipCrawlScreen: View {
 
     @ViewBuilder
     private var content: some View {
+        switch vm.clipSurface {
+        case .loading:
+            VStack(spacing: 12) {
+                ProgressView().tint(.white)
+                Text("Klip yükleniyor…")
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+        case .crawl:
+            crawlContent
+        case .none:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var crawlContent: some View {
         if let l = vm.lyrics {
             LyricsCrawlView(lyrics: l, textColor: .white.opacity(0.92))
                 .padding(.horizontal, 60)
