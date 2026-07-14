@@ -308,7 +308,7 @@ final class AppActions: NSObject {
         // box accomplishes nothing the user can see. Route to the SwiftUI
         // overlay instead. Outside Native Mode keep the legacy behaviour.
         if Preferences.shared.nativeUIMode {
-            Task { @MainActor in NativeShellViewModel.shared.toggleSearch() }
+            Task { @MainActor in NativeShellViewModel.shared.goSearch() }
         } else {
             WebViewHolder.shared.focusSearch()
         }

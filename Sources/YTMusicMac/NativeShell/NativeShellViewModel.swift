@@ -166,6 +166,7 @@ final class NativeShellViewModel: ObservableObject {
         case explore
         case history
         case statistics
+        case search
         case playlist(PlaylistSummary)
         case category(GenreChip)
         case artist(String)   // browseId; full data lives in artistDetail
@@ -257,6 +258,7 @@ final class NativeShellViewModel: ObservableObject {
         case .explore: if !exploreLoaded { Task { await loadExplore() } }
         case .history: Task { await loadHistory() }
         case .statistics: loadStatistics()
+        case .search: break
         case .playlist(let p):
             selectedPlaylist = p
             Task { await loadTracks(for: p) }
@@ -439,7 +441,6 @@ final class NativeShellViewModel: ObservableObject {
         let thumbnailURL: String?
     }
 
-    @Published var isSearchVisible: Bool = false
     @Published var searchQuery: String = "" {
         didSet { scheduleSearch() }
     }
@@ -602,6 +603,7 @@ final class NativeShellViewModel: ObservableObject {
         case .explore:  reloadExplore()
         case .history:  reloadHistory()
         case .statistics: loadStatistics()
+        case .search:   break
         case .category(let g): Task { await loadCategory(g) }
         case .artist(let id):  Task { await loadArtist(browseId: id, title: artistDetail?.name ?? "") }
         case .playlist(let p): Task { await loadTracks(for: p) }
@@ -713,7 +715,6 @@ final class NativeShellViewModel: ObservableObject {
         searchError = nil
         searchCache.removeAll()
         searchTab = .playlist
-        isSearchVisible = false
         isQueueVisible = false
         toast = nil
         toastTask?.cancel()
@@ -1297,20 +1298,40 @@ final class NativeShellViewModel: ObservableObject {
     /// video full-window. Reversible: exitClip restores everything.
     @Published private(set) var isClipMode: Bool = false
 
-    func enterClip() {
-        guard !isClipMode else { return }
-        guard MediaController.shared.nowPlaying.hasTrack else {
-            showToast("Çalan şarkı yok"); return
-        }
-        isClipMode = true
-        showToast("Klip açılıyor…")
-        // Reveal the video: drop the "hide YT UI" CSS, pin the <video>
-        // full-window, switch to the video track, and raise the WebView.
-        FeatureBridge.shared.set("hideYTApp", enabled: false)
-        FeatureBridge.shared.set("videoOnly", enabled: true)
-        PrefBridge.shared.enterClip()
-        MainWindowController.shared.setClipMode(true)
+    /// Shown instead of a black screen when "Klip" is opened on a track with
+    /// no music video: a full-window lyric crawl.
+    @Published private(set) var isClipCrawlVisible: Bool = false
+
+    enum ClipEntry: Equatable { case noTrack, video, crawl }
+
+    /// Pure decision so the branch is unit-testable without touching singletons.
+    static func clipEntry(hasTrack: Bool, hasVideo: Bool) -> ClipEntry {
+        guard hasTrack else { return .noTrack }
+        return hasVideo ? .video : .crawl
     }
+
+    func enterClip() {
+        guard !isClipMode, !isClipCrawlVisible else { return }
+        let np = MediaController.shared.nowPlaying
+        switch Self.clipEntry(hasTrack: np.hasTrack, hasVideo: np.hasVideo) {
+        case .noTrack:
+            showToast("Çalan şarkı yok")
+        case .video:
+            isClipMode = true
+            showToast("Klip açılıyor…")
+            // Reveal the video: drop the "hide YT UI" CSS, pin the <video>
+            // full-window, switch to the video track, and raise the WebView.
+            FeatureBridge.shared.set("hideYTApp", enabled: false)
+            FeatureBridge.shared.set("videoOnly", enabled: true)
+            PrefBridge.shared.enterClip()
+            MainWindowController.shared.setClipMode(true)
+        case .crawl:
+            isClipCrawlVisible = true
+            loadLyricsForCurrentTrack()
+        }
+    }
+
+    func exitClipCrawl() { isClipCrawlVisible = false }
 
     /// JS couldn't find a real video track for this song — bail out cleanly.
     func clipUnavailable() {
@@ -1492,15 +1513,12 @@ final class NativeShellViewModel: ObservableObject {
         WebViewHolder.shared.webView?.load(URLRequest(url: url))
     }
 
-    func toggleSearch() {
-        isSearchVisible.toggle()
-        if !isSearchVisible {
-            searchQuery = ""
-            searchResults = []
-            searchCache.removeAll()
-            searchError = nil
-            searchTab = .playlist
-        }
+    /// Search is a normal main-section tab now (not a modal). Navigating in
+    /// keeps the last query so returning to the tab restores it.
+    func goSearch() {
+        pushHistory()
+        mainSection = .search
+        selectedPlaylist = nil
     }
 
     /// Debounce typing so we don't fire a /search call per keystroke.
@@ -1573,10 +1591,6 @@ final class NativeShellViewModel: ObservableObject {
         case .artist:
             openArtist(browseId: r.id, name: r.title)
         }
-        isSearchVisible = false
-        searchQuery = ""
-        searchResults = []
-        searchCache.removeAll()
     }
 
     // MARK: - Track actions (context menu)
