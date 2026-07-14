@@ -26,6 +26,9 @@ actor InnerTubeClient {
     private let baseURL = URL(string: "https://music.youtube.com/youtubei/v1")!
     private let session: URLSession
     private let auth: AuthSession
+    /// Cookie-less, auth-less session for requests that must be anonymous
+    /// (timed lyrics — see `post`).
+    private let anonSession = URLSession(configuration: .ephemeral)
 
     init(auth: AuthSession) {
         self.auth = auth
@@ -290,14 +293,18 @@ actor InnerTubeClient {
         req.setValue(mobile ? "21" : "67", forHTTPHeaderField: "X-Youtube-Client-Name")
         req.setValue(mobile ? Self.androidMusicVersion : "1.20240801.01.00",
                      forHTTPHeaderField: "X-Youtube-Client-Version")
-        if let header = auth.sapisidHashHeader(origin: origin) {
+        // The mobile (timed-lyrics) request MUST be anonymous: the web session's
+        // SAPISIDHASH auth + cookies conflict with the ANDROID_MUSIC client and
+        // YT silently drops the timed lyrics. Everything else keeps the user's
+        // auth. `anonSession` is cookie-less so no session cookies leak either.
+        if !mobile, let header = auth.sapisidHashHeader(origin: origin) {
             req.setValue(header, forHTTPHeaderField: "Authorization")
             req.setValue(origin, forHTTPHeaderField: "X-Origin")
             req.setValue("0", forHTTPHeaderField: "X-Goog-AuthUser")
         }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await session.data(for: req)
+        let (data, response) = try await (mobile ? anonSession : session).data(for: req)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.invalidResponse
         }
