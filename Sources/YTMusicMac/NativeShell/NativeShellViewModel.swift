@@ -1317,27 +1317,49 @@ final class NativeShellViewModel: ObservableObject {
         case .noTrack:
             showToast("Çalan şarkı yok")
         case .video:
-            isClipMode = true
-            showToast("Klip açılıyor…")
-            // Reveal the video: drop the "hide YT UI" CSS, pin the <video>
-            // full-window, switch to the video track, and raise the WebView.
+            // Crawl-first: show lyrics immediately and load the video in the
+            // (still-hidden) WebView underneath. Only raise it once JS reports
+            // a real frame (clipReady). No black screen while it buffers, and
+            // false "hasVideo" tracks simply stay on the crawl forever.
+            isClipCrawlVisible = true
+            loadLyricsForCurrentTrack()
             FeatureBridge.shared.set("hideYTApp", enabled: false)
             FeatureBridge.shared.set("videoOnly", enabled: true)
             PrefBridge.shared.enterClip()
-            MainWindowController.shared.setClipMode(true)
         case .crawl:
             isClipCrawlVisible = true
             loadLyricsForCurrentTrack()
         }
     }
 
-    func exitClipCrawl() { isClipCrawlVisible = false }
+    /// JS confirmed a real video frame — promote from the crawl to the raised
+    /// full-window video.
+    func clipReady() {
+        guard isClipCrawlVisible, !isClipMode else { return }
+        isClipCrawlVisible = false
+        isClipMode = true
+        MainWindowController.shared.setClipMode(true)
+    }
 
-    /// JS couldn't find a real video track for this song — bail out cleanly.
+    func exitClipCrawl() {
+        isClipCrawlVisible = false
+        // Undo the video machinery in case a video track was loading underneath
+        // (harmless no-ops for audio-only tracks).
+        PrefBridge.shared.exitClip()
+        FeatureBridge.shared.set("videoOnly", enabled: false)
+        FeatureBridge.shared.set("hideYTApp", enabled: Preferences.shared.nativeUIMode)
+    }
+
+    /// JS never saw a real video frame — keep the lyric crawl and unwind the
+    /// WebView clip machinery so the hidden WebView returns to normal.
     func clipUnavailable() {
-        guard isClipMode else { return }
-        exitClip()
-        showToast("Bu şarkının klibi yok")
+        PrefBridge.shared.exitClip()
+        FeatureBridge.shared.set("videoOnly", enabled: false)
+        FeatureBridge.shared.set("hideYTApp", enabled: Preferences.shared.nativeUIMode)
+        if !isClipCrawlVisible {
+            isClipCrawlVisible = true
+            loadLyricsForCurrentTrack()
+        }
     }
 
     func exitClip() {

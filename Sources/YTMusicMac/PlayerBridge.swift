@@ -601,8 +601,12 @@ enum PlayerBridge {
             tries++;
             pinVideo(); // reparent + style, re-assert every tick
             var v = q('video');
-            if (v && v.videoHeight > 0) sawVideo = true;
-            // No real video after ~5s → bail out cleanly.
+            if (v && v.videoHeight > 0 && !sawVideo) {
+              sawVideo = true;
+              // Real frame exists → native raises the WebView over the crawl.
+              try { window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'clipReady' }); } catch (e) {}
+            }
+            // No real video after ~7.5s → tell native to stay on the crawl.
             if (!sawVideo && tries > 25) {
               clearInterval(__ytmClipProbe); __ytmClipProbe = null;
               unpinVideo();
