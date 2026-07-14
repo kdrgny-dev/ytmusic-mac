@@ -113,7 +113,10 @@ struct ClipCrawlScreen: View {
     var body: some View {
         ZStack {
             backdrop
-            content
+            // The crawl auto-scrolls with playback, so it needs no interaction —
+            // making it hit-transparent lets clicks fall through to the backdrop
+            // (which exits), so the user can never get stuck here.
+            content.allowsHitTesting(false)
             topBar
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
