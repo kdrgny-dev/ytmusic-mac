@@ -133,6 +133,7 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
                 case "ended":    Task { @MainActor in NativeShellViewModel.shared.handleTrackEnded() }
                 case "exitClip": Task { @MainActor in NativeShellViewModel.shared.exitClip() }
                 case "clipReady": Task { @MainActor in NativeShellViewModel.shared.clipReady() }
+                case "clipTrackChanged": Task { @MainActor in NativeShellViewModel.shared.clipTrackChanged() }
                 case "clipUnavailable": Task { @MainActor in NativeShellViewModel.shared.clipUnavailable() }
                 default: break
                 }

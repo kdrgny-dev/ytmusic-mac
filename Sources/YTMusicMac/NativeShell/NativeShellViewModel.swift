@@ -1341,26 +1341,32 @@ final class NativeShellViewModel: ObservableObject {
         MainWindowController.shared.setClipMode(true)
     }
 
+    /// Track changed while clipping, or JS confirmed no video for this track:
+    /// fall back to the lyric crawl WITHOUT tearing down the WebView machinery,
+    /// so a later track that has a video can promote back via clipReady. Full
+    /// teardown only happens in exitClipCrawl / exitClip.
+    private func dropToClipCrawl() {
+        guard isClipMode || isClipCrawlVisible else { return }
+        if isClipMode {
+            isClipMode = false
+            MainWindowController.shared.setClipMode(false)
+        }
+        isClipCrawlVisible = true
+        loadLyricsForCurrentTrack()
+    }
+
+    func clipTrackChanged() { dropToClipCrawl() }
+
     func exitClipCrawl() {
         isClipCrawlVisible = false
-        // Undo the video machinery in case a video track was loading underneath
-        // (harmless no-ops for audio-only tracks).
+        // Full teardown: stop the probe, unpin, restore CSS.
         PrefBridge.shared.exitClip()
         FeatureBridge.shared.set("videoOnly", enabled: false)
         FeatureBridge.shared.set("hideYTApp", enabled: Preferences.shared.nativeUIMode)
     }
 
-    /// JS never saw a real video frame — keep the lyric crawl and unwind the
-    /// WebView clip machinery so the hidden WebView returns to normal.
-    func clipUnavailable() {
-        PrefBridge.shared.exitClip()
-        FeatureBridge.shared.set("videoOnly", enabled: false)
-        FeatureBridge.shared.set("hideYTApp", enabled: Preferences.shared.nativeUIMode)
-        if !isClipCrawlVisible {
-            isClipCrawlVisible = true
-            loadLyricsForCurrentTrack()
-        }
-    }
+    /// JS never saw a real video frame for this track — show the lyric crawl.
+    func clipUnavailable() { dropToClipCrawl() }
 
     func exitClip() {
         guard isClipMode else { return }

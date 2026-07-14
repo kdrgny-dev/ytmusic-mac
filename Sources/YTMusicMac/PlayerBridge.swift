@@ -615,13 +615,21 @@ enum PlayerBridge {
           // videoHeight === 0). If nothing shows after ~5s, tell native so
           // it can bail out cleanly instead of leaving a black screen.
           if (__ytmClipProbe) clearInterval(__ytmClipProbe);
-          var tries = 0, sawVideo = false;
-          // Keep re-pinning for the WHOLE clip session — YT reflows the player
-          // on track changes / layout and would otherwise reclaim the <video>.
+          // Per-track state. On next/prev, YT resets to the Song (audio)
+          // version, so we must re-select video and re-evaluate each track.
+          var tries = 0, sawVideo = false, bailed = false, curVid = currentVideoId();
           __ytmClipProbe = setInterval(function() {
+            var nowVid = currentVideoId();
+            if (nowVid && nowVid !== curVid) {
+              // Track changed. Drop to the crawl immediately (no black frame),
+              // re-select the video version, and re-evaluate from scratch.
+              curVid = nowVid; tries = 0; sawVideo = false; bailed = false;
+              switchAV(true);
+              try { window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'clipTrackChanged' }); } catch (e) {}
+            }
             tries++;
             pinVideo(); // reparent + style, re-assert every tick
-            // Keep the title/artist label in step with next/prev track changes.
+            // Keep the title/artist label in step with track changes.
             var mm = document.getElementById('__ytm_clip_meta');
             if (mm && mm.children.length >= 2) {
               var te = q('.title.ytmusic-player-bar') || q('.content-info-wrapper .title');
@@ -632,15 +640,16 @@ enum PlayerBridge {
               if (mm.children[1].textContent !== na) mm.children[1].textContent = na;
             }
             var v = q('video');
-            if (v && v.videoHeight > 0 && !sawVideo) {
-              sawVideo = true;
-              // Real frame exists → native raises the WebView over the crawl.
-              try { window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'clipReady' }); } catch (e) {}
-            }
-            // No real video after ~7.5s → tell native to stay on the crawl.
-            if (!sawVideo && tries > 25) {
-              clearInterval(__ytmClipProbe); __ytmClipProbe = null;
-              unpinVideo();
+            if (v && v.videoHeight > 0) {
+              if (!sawVideo) {
+                sawVideo = true;
+                // Real frame exists → native raises the WebView over the crawl.
+                try { window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'clipReady' }); } catch (e) {}
+              }
+            } else if (!sawVideo && !bailed && tries > 15) {
+              // No real video for this track → stay on the crawl. Keep the probe
+              // running so a later track WITH video can promote back.
+              bailed = true;
               try { window.webkit.messageHandlers.ytmEvent.postMessage({ name: 'clipUnavailable' }); } catch (e) {}
             }
           }, 300);
