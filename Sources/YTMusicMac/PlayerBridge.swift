@@ -621,6 +621,16 @@ enum PlayerBridge {
           __ytmClipProbe = setInterval(function() {
             tries++;
             pinVideo(); // reparent + style, re-assert every tick
+            // Keep the title/artist label in step with next/prev track changes.
+            var mm = document.getElementById('__ytm_clip_meta');
+            if (mm && mm.children.length >= 2) {
+              var te = q('.title.ytmusic-player-bar') || q('.content-info-wrapper .title');
+              var ae = q('.byline.ytmusic-player-bar') || q('.subtitle.ytmusic-player-bar');
+              var nt = te ? te.textContent.trim() : '';
+              var na = ae ? ae.textContent.trim() : '';
+              if (mm.children[0].textContent !== nt) mm.children[0].textContent = nt;
+              if (mm.children[1].textContent !== na) mm.children[1].textContent = na;
+            }
             var v = q('video');
             if (v && v.videoHeight > 0 && !sawVideo) {
               sawVideo = true;
