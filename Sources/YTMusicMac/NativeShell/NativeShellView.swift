@@ -1558,8 +1558,7 @@ private struct ArtistView: View {
     }
 
     private func isCurrentTrack(_ t: NativeShellViewModel.TrackSummary) -> Bool {
-        let np = media.nowPlaying
-        return np.hasTrack && np.title.caseInsensitiveCompare(t.title) == .orderedSame
+        media.nowPlaying.isCurrentTrack(id: t.id)
     }
 }
 
@@ -2129,8 +2128,7 @@ private struct ChartSectionView: View {
     }
 
     private func isCurrent(_ t: NativeShellViewModel.TrackSummary) -> Bool {
-        let np = media.nowPlaying
-        return np.hasTrack && np.title.caseInsensitiveCompare(t.title) == .orderedSame
+        media.nowPlaying.isCurrentTrack(id: t.id)
     }
 }
 
@@ -2950,7 +2948,9 @@ private struct PlaylistDetailView: View {
                                      zebra: idx.isMultiple(of: 2),
                                      showAlbum: showAlbumColumn,
                                      selected: selectedIDs.contains(track.id),
-                                     fallbackThumbnailURL: playlist.thumbnailURL)
+                                     fallbackThumbnailURL: playlist.thumbnailURL,
+                                     showClipIcon: isCurrentTrack(track) && media.nowPlaying.hasVideo,
+                                     onClip: { vm.enterClip() })
                                 // Only dim the row actually being dragged. Guard
                                 // the nil case: a freshly-built list's rows have
                                 // no setVideoId yet, and nil == nil would dim all.
@@ -2977,8 +2977,7 @@ private struct PlaylistDetailView: View {
     /// Match the row to nowPlaying by title. Accessed via the env object
     /// so SwiftUI re-renders this view tree when the current track changes.
     private func isCurrentTrack(_ t: NativeShellViewModel.TrackSummary) -> Bool {
-        let np = media.nowPlaying
-        return np.hasTrack && np.title.caseInsensitiveCompare(t.title) == .orderedSame
+        media.nowPlaying.isCurrentTrack(id: t.id)
     }
 
     @ViewBuilder
@@ -3072,6 +3071,10 @@ private struct TrackRow: View {
     /// Used when the track has no per-row artwork (album tracks share the
     /// album cover instead of shipping one thumbnail each).
     var fallbackThumbnailURL: String? = nil
+    /// Only the now-playing row whose track has a music-video counterpart
+    /// shows the clip icon (hasVideo is known only for the current track).
+    var showClipIcon: Bool = false
+    var onClip: (() -> Void)? = nil
 
     @State private var isHovered: Bool = false
 
@@ -3096,6 +3099,10 @@ private struct TrackRow: View {
                     Image(systemName: "speaker.wave.2.fill")
                         .font(.system(size: 11))
                         .foregroundColor(Color.accentColor)
+                } else if isHovered {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(.primary.opacity(0.7))
                 } else {
                     Text("\(index)")
                         .font(.system(size: 11, design: .monospaced))
@@ -3129,6 +3136,18 @@ private struct TrackRow: View {
                     .foregroundColor(.primary.opacity(0.55))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if showClipIcon {
+                Button(action: { onClip?() }) {
+                    Image(systemName: "film")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color.accentColor)
+                        .frame(width: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Klibi oynat")
             }
 
             Text(track.duration ?? "")

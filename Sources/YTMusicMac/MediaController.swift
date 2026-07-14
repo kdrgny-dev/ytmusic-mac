@@ -30,6 +30,12 @@ struct NowPlaying: Equatable {
 
     var hasTrack: Bool { !title.isEmpty }
     var trackKey: String { "\(title)|\(artist)" }
+
+    /// True when this is the track currently playing. Matches by videoId —
+    /// title alone falsely flags every same-named cover as "now playing".
+    func isCurrentTrack(id: String) -> Bool {
+        hasTrack && !videoId.isEmpty && videoId == id
+    }
 }
 
 final class MediaController: ObservableObject {
