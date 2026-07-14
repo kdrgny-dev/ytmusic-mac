@@ -118,6 +118,10 @@ struct ClipCrawlScreen: View {
             }
         }
         .ignoresSafeArea()
+        // Safety net: tapping the empty backdrop always exits, even if the
+        // close button is hard to spot (e.g. on the "no lyrics" screen).
+        .contentShape(Rectangle())
+        .onTapGesture { vm.exitClipCrawl() }
     }
 
     @ViewBuilder
@@ -139,14 +143,18 @@ struct ClipCrawlScreen: View {
         VStack {
             HStack(spacing: 14) {
                 Button(action: { vm.exitClipCrawl() }) {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 34, height: 34)
-                        .background(Circle().fill(Color.white.opacity(0.15)))
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left")
+                        Text("Kapat")
+                    }
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 34)
+                    .background(Capsule().fill(Color.white.opacity(0.18)))
                 }
                 .buttonStyle(.plain)
-                .help("Kapat")
+                .help("Kapat (Esc)")
 
                 if media.nowPlaying.hasTrack {
                     VStack(alignment: .leading, spacing: 1) {
