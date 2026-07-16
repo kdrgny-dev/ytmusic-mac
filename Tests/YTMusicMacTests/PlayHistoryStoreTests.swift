@@ -158,12 +158,29 @@ final class PlayHistoryStoreTests: XCTestCase {
 }
 
 final class StatsFormatTests: XCTestCase {
-    func testDurationFormatting() {
+    // Output is language-dependent now, so pin it rather than inheriting the
+    // test machine's system locale.
+    override func tearDown() {
+        L10n._testLanguageOverride = nil
+        super.tearDown()
+    }
+
+    func testDurationFormattingInTurkish() {
+        L10n._testLanguageOverride = .turkish
         XCTAssertEqual(StatsFormat.duration(0), "0 dk")
         XCTAssertEqual(StatsFormat.duration(90_000), "1 dk")          // 90s rounds down
         XCTAssertEqual(StatsFormat.duration(47 * 60_000), "47 dk")
         XCTAssertEqual(StatsFormat.duration(60 * 60_000), "1 sa")     // no "0 dk" tail
         XCTAssertEqual(StatsFormat.duration(192 * 60_000), "3 sa 12 dk")
+    }
+
+    func testDurationFormattingInEnglish() {
+        L10n._testLanguageOverride = .english
+        XCTAssertEqual(StatsFormat.duration(0), "0m")
+        XCTAssertEqual(StatsFormat.duration(90_000), "1m")
+        XCTAssertEqual(StatsFormat.duration(47 * 60_000), "47m")
+        XCTAssertEqual(StatsFormat.duration(60 * 60_000), "1h")
+        XCTAssertEqual(StatsFormat.duration(192 * 60_000), "3h 12m")
     }
 }
 

@@ -197,7 +197,7 @@ private struct UpdateBar: View {
         HStack(spacing: 10) {
             Image(systemName: "arrow.down.circle.fill")
                 .font(.system(size: 12, weight: .semibold))
-            Text("Yeni sürüm var: v\(update.version)")
+            Text(L10n.t("shell.update.available", update.version))
                 .font(.system(size: 12, weight: .semibold))
             if let notes = update.notes {
                 Text(notes)
@@ -207,7 +207,7 @@ private struct UpdateBar: View {
             }
             Spacer(minLength: 12)
             Button(action: { NSWorkspace.shared.open(update.downloadURL) }) {
-                Text("İndir")
+                Text(L10n.t("shell.update.download"))
                     .font(.system(size: 11, weight: .semibold))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
@@ -220,7 +220,7 @@ private struct UpdateBar: View {
                     .opacity(0.7)
             }
             .buttonStyle(.plain)
-            .help("Bu sürümü atla")
+            .help(L10n.t("shell.update.skip"))
         }
         .foregroundColor(.white)
         .padding(.horizontal, 16)
@@ -276,7 +276,7 @@ private struct SearchView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 14))
                 .foregroundColor(.primary.opacity(0.5))
-            TextField("Şarkı, sanatçı, albüm, çalma listesi ara…", text: $vm.searchQuery)
+            TextField(L10n.t("shell.search.placeholder"), text: $vm.searchQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 16))
                 .foregroundColor(.primary)
@@ -306,7 +306,7 @@ private struct SearchView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 28, weight: .light))
                         .foregroundColor(.primary.opacity(0.25))
-                    Text("\(vm.searchTab.label.lowercased()) aramak için yaz")
+                    Text(L10n.t("shell.search.emptyHint", vm.searchTab.label.lowercased()))
                         .font(.system(size: 12))
                         .foregroundColor(.primary.opacity(0.4))
                 }
@@ -349,7 +349,7 @@ private struct SearchView: View {
     /// query, which re-runs the search through the normal debounce path.
     private var suggestions: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("ÖNERİLER")
+            Text(L10n.t("shell.search.suggestions"))
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(0.6)
                 .foregroundColor(.primary.opacity(0.5))
@@ -386,12 +386,12 @@ private struct SearchView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
-                    Text("SON ARAMALAR")
+                    Text(L10n.t("shell.search.recent"))
                         .font(.system(size: 10, weight: .semibold))
                         .tracking(0.6)
                         .foregroundColor(.primary.opacity(0.5))
                     Spacer()
-                    Button("Temizle") { vm.clearSearchHistory() }
+                    Button(L10n.t("shell.action.clear")) { vm.clearSearchHistory() }
                         .buttonStyle(.plain)
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundColor(.primary.opacity(0.5))
@@ -456,7 +456,7 @@ private struct SearchResultRow: View {
             }
             Spacer(minLength: 8)
             if let trackCount {
-                Text("\(trackCount) şarkı")
+                Text(L10n.plural("shell.songCount", trackCount))
                     .font(.system(size: 11))
                     .foregroundColor(.primary.opacity(0.45))
                     .lineLimit(1)
@@ -504,11 +504,11 @@ private struct Sidebar: View {
 
     private var topItems: [TopItem] {
         [
-            .init(id: "home",    icon: "house.fill",            label: "Ana sayfa",    action: { vm.goHome() }),
-            .init(id: "explore", icon: "safari",                label: "Keşfet", action: { vm.goExplore() }),
-            .init(id: "search",  icon: "magnifyingglass",       label: "Ara",  action: { vm.goSearch() }),
-            .init(id: "history", icon: "clock.arrow.circlepath", label: "Geçmiş", action: { vm.goHistory() }),
-            .init(id: "statistics", icon: "chart.bar.fill", label: "İstatistikler", action: { vm.goStatistics() })
+            .init(id: "home",    icon: "house.fill",            label: L10n.t("shell.sidebar.home"),    action: { vm.goHome() }),
+            .init(id: "explore", icon: "safari",                label: L10n.t("shell.sidebar.explore"), action: { vm.goExplore() }),
+            .init(id: "search",  icon: "magnifyingglass",       label: L10n.t("shell.sidebar.search"),  action: { vm.goSearch() }),
+            .init(id: "history", icon: "clock.arrow.circlepath", label: L10n.t("shell.sidebar.history"), action: { vm.goHistory() }),
+            .init(id: "statistics", icon: "chart.bar.fill", label: L10n.t("shell.sidebar.statistics"), action: { vm.goStatistics() })
         ]
     }
 
@@ -536,7 +536,7 @@ private struct Sidebar: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
-                    sectionHeader("Keşfet")
+                    sectionHeader(L10n.t("shell.sidebar.section.browse"))
                     ForEach(topItems) { item in
                         Button(action: item.action) {
                             sidebarRow(icon: item.icon, label: item.label, active: isTopActive(item.id))
@@ -545,7 +545,7 @@ private struct Sidebar: View {
                     }
 
                     HStack {
-                        sectionHeader("Çalma listelerin")
+                        sectionHeader(L10n.t("shell.sidebar.yourPlaylists"))
                         Spacer()
                         Button(action: { vm.reload() }) {
                             Image(systemName: "arrow.clockwise")
@@ -560,7 +560,7 @@ private struct Sidebar: View {
                     playlistSection
 
                     if !vm.followedArtists.isEmpty {
-                        sectionHeader("Sanatçılar").padding(.top, 18)
+                        sectionHeader(L10n.t("shell.sidebar.artists")).padding(.top, 18)
                         ForEach(vm.followedArtists) { a in
                             Button(action: { vm.openArtist(browseId: a.id, name: a.title) }) {
                                 playlistRow(a, circular: true)
@@ -569,7 +569,7 @@ private struct Sidebar: View {
                         }
                     }
                     if !vm.savedAlbums.isEmpty {
-                        sectionHeader("Albümler").padding(.top, 18)
+                        sectionHeader(L10n.t("shell.sidebar.albums")).padding(.top, 18)
                         ForEach(vm.savedAlbums) { al in
                             Button(action: { vm.openPlaylist(al) }) {
                                 playlistRow(al, active: isPlaylistActive(al))
@@ -625,7 +625,9 @@ private struct Sidebar: View {
                         .onDrop(of: [UTType.text],
                                 delegate: PlaylistDropDelegate(targetId: p.id, vm: vm,
                                                                draggedId: $draggedPlaylistId))
-                        .help(vm.isNowPlayingCollection(p) ? "\(p.title) — şu an çalıyor" : p.title)
+                        .help(vm.isNowPlayingCollection(p)
+                              ? L10n.t("shell.sidebar.nowPlayingFrom", p.title)
+                              : p.title)
                         .contextMenu { playlistContextMenu(p) }
                     }
                 }
@@ -645,7 +647,7 @@ private struct Sidebar: View {
                 .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help(prefs.sidebarCollapsed ? "Kenar çubuğunu genişlet" : "Kenar çubuğunu daralt")
+        .help(L10n.t(prefs.sidebarCollapsed ? "shell.sidebar.expand" : "shell.sidebar.collapse"))
     }
 
     private var createButton: some View {
@@ -658,7 +660,7 @@ private struct Sidebar: View {
                 .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help("Yeni çalma listesi")
+        .help(L10n.t("shell.playlist.new"))
     }
 
     @ViewBuilder
@@ -666,7 +668,7 @@ private struct Sidebar: View {
         if vm.loadingPlaylists && vm.playlists.isEmpty {
             HStack {
                 ProgressView().controlSize(.small)
-                Text("Yükleniyor…")
+                Text(L10n.t("shell.loading"))
                     .font(.system(size: 12))
                     .foregroundColor(.primary.opacity(0.5))
             }
@@ -700,21 +702,21 @@ private struct Sidebar: View {
 
     @ViewBuilder
     private func playlistContextMenu(_ p: NativeShellViewModel.PlaylistSummary) -> some View {
-        Button { vm.openPlaylist(p) } label: { Label("Aç", systemImage: "arrow.right.circle") }
+        Button { vm.openPlaylist(p) } label: { Label(L10n.t("common.open"), systemImage: "arrow.right.circle") }
         if vm.isEditablePlaylist(p) {
-            Button { vm.beginRename(p) } label: { Label("Adını değiştir", systemImage: "pencil") }
+            Button { vm.beginRename(p) } label: { Label(L10n.t("common.rename"), systemImage: "pencil") }
             Divider()
-            Button(role: .destructive) { vm.beginDelete(p) } label: { Label("Sil", systemImage: "trash") }
+            Button(role: .destructive) { vm.beginDelete(p) } label: { Label(L10n.t("common.delete"), systemImage: "trash") }
         } else {
             Button { vm.removePlaylistFromLibrary(p) } label: {
-                Label("Kitaplıktan çıkar", systemImage: "minus.circle")
+                Label(L10n.t("shell.library.remove"), systemImage: "minus.circle")
             }
         }
         Divider()
-        Button { vm.copyPlaylistLink(p) } label: { Label("Bağlantıyı kopyala", systemImage: "link") }
+        Button { vm.copyPlaylistLink(p) } label: { Label(L10n.t("shell.action.copyLink"), systemImage: "link") }
         if vm.hasCustomPlaylistOrder {
             Button { vm.resetPlaylistOrder() } label: {
-                Label("Sıralamayı sıfırla", systemImage: "arrow.up.arrow.down")
+                Label(L10n.t("shell.playlist.resetOrder"), systemImage: "arrow.up.arrow.down")
             }
         }
     }
@@ -756,8 +758,10 @@ private struct Sidebar: View {
         vm.mainSection == .playlist(p)
     }
 
+    // Locale-aware: Turkish uppercases "i" to "İ", and the default would
+    // render "Çalma listelerin" as "ÇALMA LISTELERIN".
     private func sectionHeader(_ text: String) -> some View {
-        Text(text.uppercased())
+        Text(text.uppercased(with: L10n.locale))
             .font(.system(size: 10, weight: .semibold))
             .tracking(0.6)
             .foregroundColor(.primary.opacity(0.5))
@@ -803,7 +807,7 @@ private struct Sidebar: View {
                 Image(systemName: "speaker.wave.2.fill")
                     .font(.system(size: 10))
                     .foregroundColor(prefs.theme.accentColor)
-                    .help("Şu an bu listeden çalıyor")
+                    .help(L10n.t("shell.sidebar.playingFromThis"))
             }
         }
         .padding(.horizontal, 10)
@@ -859,33 +863,33 @@ private struct CreatePlaylistOverlay: View {
                 .onTapGesture { vm.cancelCreatePlaylist() }
 
             VStack(alignment: .leading, spacing: 16) {
-                Text("Yeni çalma listesi")
+                Text(L10n.t("shell.playlist.new"))
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
 
                 HStack(alignment: .top, spacing: 16) {
                     coverWell
                     VStack(alignment: .leading, spacing: 10) {
-                        field("Liste adı", text: $name)
+                        field(L10n.t("shell.playlist.namePlaceholder"), text: $name)
                             .focused($nameFocused)
-                        field("Açıklama (opsiyonel)", text: $desc)
+                        field(L10n.t("shell.playlist.descPlaceholder"), text: $desc)
                         privacyPicker
                     }
                 }
 
-                Text("Not: kapak görseli YT'nin oluşturma API'sinde desteklenmiyor — liste, parçalardan otomatik kapak alır.")
+                Text(L10n.t("shell.playlist.coverNote"))
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.45))
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 10) {
                     Spacer()
-                    Button("İptal") { vm.cancelCreatePlaylist() }
+                    Button(L10n.t("common.cancel")) { vm.cancelCreatePlaylist() }
                         .buttonStyle(.plain)
                         .foregroundColor(.white.opacity(0.7))
                         .padding(.horizontal, 14).padding(.vertical, 7)
                     Button(action: { vm.createPlaylist(title: name, description: desc, privacy: privacy) }) {
-                        Text("Oluştur")
+                        Text(L10n.t("common.create"))
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 16).padding(.vertical, 7)
@@ -922,7 +926,7 @@ private struct CreatePlaylistOverlay: View {
                         Image(systemName: "photo.badge.plus")
                             .font(.system(size: 22, weight: .light))
                             .foregroundColor(.white.opacity(0.5))
-                        Text("Kapak seç")
+                        Text(L10n.t("shell.playlist.pickCover"))
                             .font(.system(size: 10))
                             .foregroundColor(.white.opacity(0.5))
                     }
@@ -1028,7 +1032,7 @@ private struct SimilarPlaylistOverlay: View {
                     .font(.system(size: 16))
                     .foregroundColor(Color.accentColor)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Benzerlerinden liste")
+                    Text(L10n.t("shell.similar.title"))
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.white)
                     if let seed = vm.similarSeed {
@@ -1041,24 +1045,24 @@ private struct SimilarPlaylistOverlay: View {
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                field("Liste adı", text: $name)
+                field(L10n.t("shell.playlist.namePlaceholder"), text: $name)
                     .focused($nameFocused)
                 privacyPicker
             }
 
-            Text("Last.fm’in bu parçaya benzer bulduğu şarkılardan kalıcı bir çalma listesi oluşturulur.")
+            Text(L10n.t("shell.similar.note"))
                 .font(.system(size: 10))
                 .foregroundColor(.white.opacity(0.45))
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 10) {
                 Spacer()
-                Button("İptal") { vm.cancelSimilarPlaylist() }
+                Button(L10n.t("common.cancel")) { vm.cancelSimilarPlaylist() }
                     .buttonStyle(.plain)
                     .foregroundColor(.white.opacity(0.7))
                     .padding(.horizontal, 14).padding(.vertical, 7)
                 Button(action: { vm.confirmSimilarPlaylist(title: name, privacy: privacy) }) {
-                    Text("Oluştur")
+                    Text(L10n.t("common.create"))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 16).padding(.vertical, 7)
@@ -1097,7 +1101,7 @@ private struct SimilarPlaylistOverlay: View {
                         }
                     }
                     .frame(height: 5)
-                    Text("\(done) / \(total) eşleştirildi")
+                    Text(L10n.t("shell.similar.matched", done, total))
                         .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.55))
                 }
@@ -1112,9 +1116,9 @@ private struct SimilarPlaylistOverlay: View {
     private var stageTitle: String {
         switch vm.similarStage {
         case .form, .done: return ""
-        case .fetching:    return "Benzer parçalar aranıyor…"
-        case .matching:    return "YouTube’da eşleştiriliyor…"
-        case .creating:    return "Çalma listen oluşturuluyor…"
+        case .fetching:    return L10n.t("shell.similar.stage.fetching")
+        case .matching:    return L10n.t("shell.similar.stage.matching")
+        case .creating:    return L10n.t("shell.similar.stage.creating")
         }
     }
 
@@ -1124,16 +1128,16 @@ private struct SimilarPlaylistOverlay: View {
         VStack(spacing: 16) {
             SuccessTick(color: Color.accentColor)
             VStack(spacing: 4) {
-                Text("Liste oluşturuldu")
+                Text(L10n.t("shell.similar.done"))
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.white)
-                Text("\(count) parça • sol menüde “Çalma listelerin”de")
+                Text(L10n.plural("shell.similar.doneDetail", count))
                     .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.55))
                     .multilineTextAlignment(.center)
             }
             Button(action: { vm.finishSimilarPlaylist() }) {
-                Text("Tamam")
+                Text(L10n.t("common.ok"))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white)
                     .padding(.horizontal, 26).padding(.vertical, 8)
@@ -1227,10 +1231,10 @@ private struct RenamePlaylistOverlay: View {
             Color.black.opacity(0.45).ignoresSafeArea()
                 .onTapGesture { vm.cancelRename() }
             VStack(alignment: .leading, spacing: 14) {
-                Text("Adını değiştir")
+                Text(L10n.t("common.rename"))
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
-                TextField("Liste adı", text: $name)
+                TextField(L10n.t("shell.playlist.namePlaceholder"), text: $name)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
                     .foregroundColor(.white)
@@ -1240,11 +1244,11 @@ private struct RenamePlaylistOverlay: View {
                     .onSubmit { if canSave { vm.renamePlaylist(playlist, to: name) } }
                 HStack(spacing: 10) {
                     Spacer()
-                    Button("İptal") { vm.cancelRename() }
+                    Button(L10n.t("common.cancel")) { vm.cancelRename() }
                         .buttonStyle(.plain).foregroundColor(.white.opacity(0.7))
                         .padding(.horizontal, 14).padding(.vertical, 7)
                     Button(action: { vm.renamePlaylist(playlist, to: name) }) {
-                        Text("Kaydet")
+                        Text(L10n.t("common.save"))
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 16).padding(.vertical, 7)
@@ -1273,20 +1277,20 @@ private struct DeleteConfirmOverlay: View {
             Color.black.opacity(0.45).ignoresSafeArea()
                 .onTapGesture { vm.cancelDelete() }
             VStack(alignment: .leading, spacing: 12) {
-                Text("Çalma listesini sil?")
+                Text(L10n.t("shell.playlist.deleteTitle"))
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
-                Text("“\(playlist.title)” kalıcı olarak silinecek. Bu işlem geri alınamaz.")
+                Text(L10n.t("shell.playlist.deleteBody", playlist.title))
                     .font(.system(size: 12))
                     .foregroundColor(.white.opacity(0.7))
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 10) {
                     Spacer()
-                    Button("İptal") { vm.cancelDelete() }
+                    Button(L10n.t("common.cancel")) { vm.cancelDelete() }
                         .buttonStyle(.plain).foregroundColor(.white.opacity(0.7))
                         .padding(.horizontal, 14).padding(.vertical, 7)
                     Button(action: { vm.confirmDeletePlaylist() }) {
-                        Text("Sil")
+                        Text(L10n.t("common.delete"))
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 16).padding(.vertical, 7)
@@ -1349,10 +1353,10 @@ private struct MainContent: View {
             Image(systemName: "music.note.list")
                 .font(.system(size: 36, weight: .light))
                 .foregroundColor(.primary.opacity(0.35))
-            Text("Bir çalma listesi seç ya da Ana sayfayı aç")
+            Text(L10n.t("shell.empty.title"))
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.primary.opacity(0.85))
-            Text("Öneriler için Kenar çubuğu → Ana sayfa.")
+            Text(L10n.t("shell.empty.subtitle"))
                 .font(.system(size: 12))
                 .foregroundColor(.primary.opacity(0.45))
         }
@@ -1368,10 +1372,10 @@ private struct NavButtons: View {
         HStack(spacing: 6) {
             button(systemName: "chevron.left",
                    enabled: vm.canGoBack,
-                   help: "Geri (⌘ ←)") { vm.goBack() }
+                   help: L10n.t("shell.nav.back")) { vm.goBack() }
             button(systemName: "chevron.right",
                    enabled: vm.canGoForward,
-                   help: "İleri (⌘ →)") { vm.goForward() }
+                   help: L10n.t("shell.nav.forward")) { vm.goForward() }
         }
     }
 
@@ -1419,7 +1423,7 @@ private struct ArtistView: View {
                     if !a.topSongs.isEmpty { topSongs(a) }
                     if !a.albums.isEmpty {
                         CarouselSection(
-                            title: "Albümler",
+                            title: L10n.t("shell.artist.albums"),
                             subtitle: nil,
                             items: a.albums,
                             pageSize: 3,
@@ -1434,7 +1438,7 @@ private struct ArtistView: View {
                     }
                     if !a.singles.isEmpty {
                         CarouselSection(
-                            title: "Single'lar",
+                            title: L10n.t("shell.artist.singles"),
                             subtitle: nil,
                             items: a.singles,
                             pageSize: 3,
@@ -1474,7 +1478,7 @@ private struct ArtistView: View {
             .frame(width: 160, height: 160)
             .clipShape(Circle())
             VStack(alignment: .leading, spacing: 6) {
-                Text("SANATÇI")
+                Text(L10n.t("shell.artist.kindLabel"))
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(0.8)
                     .foregroundColor(.primary.opacity(0.55))
@@ -1495,12 +1499,12 @@ private struct ArtistView: View {
     private func topSongs(_ a: NativeShellViewModel.ArtistDetail) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Popüler şarkılar")
+                Text(L10n.t("shell.artist.topSongs"))
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(.primary)
                 Spacer()
                 if let bid = a.allSongsBrowseId {
-                    Button("Tüm şarkılar") {
+                    Button(L10n.t("shell.artist.allSongs")) {
                         vm.openPlaylist(.init(id: bid, title: a.name, thumbnailURL: a.thumbnailURL))
                     }
                     .buttonStyle(.plain)
@@ -1564,14 +1568,14 @@ private struct HistoryView: View {
     private var header: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("KİTAPLIK")
+                Text(L10n.t("shell.history.kindLabel"))
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(0.8)
                     .foregroundColor(.primary.opacity(0.55))
-                Text("Geçmiş")
+                Text(L10n.t("shell.history.title"))
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.primary)
-                Text("Son dinlediklerin, YT Music'in gün gruplarıyla")
+                Text(L10n.t("shell.history.subtitle"))
                     .font(.system(size: 12))
                     .foregroundColor(.primary.opacity(0.5))
             }
@@ -1585,7 +1589,7 @@ private struct HistoryView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             }
             .buttonStyle(.plain)
-            .help("Geçmişi yenile")
+            .help(L10n.t("shell.history.reload"))
         }
     }
 }
@@ -1648,24 +1652,24 @@ private struct CategoryView: View {
             .buttonStyle(.plain)
             .contextMenu {
                 Button { vm.openPlaylist(p) } label: {
-                    Label("Aç", systemImage: "arrow.right.circle")
+                    Label(L10n.t("common.open"), systemImage: "arrow.right.circle")
                 }
                 Button { vm.openPlaylist(p, autoplay: true) } label: {
-                    Label("Oynat", systemImage: "play.fill")
+                    Label(L10n.t("transport.play"), systemImage: "play.fill")
                 }
                 Divider()
                 if vm.isPlaylistSaved(p) {
                     Button { vm.removePlaylistFromLibrary(p) } label: {
-                        Label("Kitaplıktan çıkar", systemImage: "minus.circle")
+                        Label(L10n.t("shell.library.remove"), systemImage: "minus.circle")
                     }
                 } else {
                     Button { vm.savePlaylistToLibrary(p) } label: {
-                        Label("Kitaplığa kaydet", systemImage: "plus.circle")
+                        Label(L10n.t("shell.library.save"), systemImage: "plus.circle")
                     }
                 }
                 Divider()
                 Button { vm.copyPlaylistLink(p) } label: {
-                    Label("Bağlantıyı kopyala", systemImage: "link")
+                    Label(L10n.t("shell.action.copyLink"), systemImage: "link")
                 }
             }
     }
@@ -1698,7 +1702,7 @@ private struct CategoryView: View {
     private var header: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("KATEGORİ")
+                Text(L10n.t("shell.category.kindLabel"))
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(0.8)
                     .foregroundColor(.primary.opacity(0.55))
@@ -1706,7 +1710,7 @@ private struct CategoryView: View {
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.primary)
                 if !vm.categoryPlaylists.isEmpty {
-                    Text("\(vm.categoryPlaylists.count) çalma listesi")
+                    Text(L10n.plural("shell.playlistCount", vm.categoryPlaylists.count))
                         .font(.system(size: 12))
                         .foregroundColor(.primary.opacity(0.5))
                 }
@@ -1782,10 +1786,10 @@ private struct CategoryPlaylistRow: View {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 13))
                     .foregroundColor(.accentColor)
-                    .help("Kitaplığında kayıtlı")
+                    .help(L10n.t("shell.library.savedBadge"))
             }
             if let n = playlist.trackCount {
-                Text("\(n) şarkı")
+                Text(L10n.plural("shell.songCount", n))
                     .font(.system(size: 11))
                     .foregroundColor(.primary.opacity(0.5))
                     .frame(width: 70, alignment: .trailing)
@@ -1814,7 +1818,7 @@ private struct SavedBadge: View {
             .background(Circle().fill(Color.accentColor))
             .overlay(Circle().stroke(Color.black.opacity(0.35), lineWidth: 1))
             .padding(compact ? 5 : 8)
-            .help("Kitaplığında kayıtlı")
+            .help(L10n.t("shell.library.savedBadge"))
     }
 }
 
@@ -1825,14 +1829,14 @@ private struct CountBadge: View {
     let compact: Bool
 
     var body: some View {
-        Text(compact ? "\(count)" : "\(count) şarkı")
+        Text(compact ? "\(count)" : L10n.plural("shell.songCount", count))
             .font(.system(size: compact ? 9 : 10, weight: .semibold))
             .foregroundColor(.white)
             .padding(.horizontal, compact ? 5 : 7)
             .padding(.vertical, compact ? 2 : 3)
             .background(Capsule().fill(Color.black.opacity(0.65)))
             .padding(compact ? 5 : 7)
-            .help("\(count) şarkı")
+            .help(L10n.plural("shell.songCount", count))
     }
 }
 
@@ -1889,10 +1893,10 @@ private struct HomeView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(0.8)
                     .foregroundColor(.primary.opacity(0.55))
-                Text("Sana özel öneriler")
+                Text(L10n.t("shell.home.title"))
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.primary)
-                Text("YT Music'in senin için karıştırdığı playlist'ler, sanatçılar ve türler")
+                Text(L10n.t("shell.home.subtitle"))
                     .font(.system(size: 12))
                     .foregroundColor(.primary.opacity(0.5))
             }
@@ -1906,7 +1910,7 @@ private struct HomeView: View {
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
-            .help("Yenile")
+            .help(L10n.t("shell.action.refresh"))
         }
     }
 
@@ -1915,10 +1919,10 @@ private struct HomeView: View {
     private var greeting: String {
         let h = Calendar.current.component(.hour, from: Date())
         switch h {
-        case 5..<12:  return "GÜNAYDIN"
-        case 12..<18: return "İYİ GÜNLER"
-        case 18..<23: return "İYİ AKŞAMLAR"
-        default:      return "İYİ GECELER"
+        case 5..<12:  return L10n.t("shell.greeting.morning")
+        case 12..<18: return L10n.t("shell.greeting.afternoon")
+        case 18..<23: return L10n.t("shell.greeting.evening")
+        default:      return L10n.t("shell.greeting.night")
         }
     }
 
@@ -1934,7 +1938,7 @@ private struct HomeView: View {
             Text(msg)
                 .font(.system(size: 13))
                 .foregroundColor(.primary.opacity(0.6))
-            Button("Yeniden dene") { vm.reloadHome() }
+            Button(L10n.t("common.retry")) { vm.reloadHome() }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
@@ -1965,15 +1969,15 @@ private struct ExploreView: View {
                     errorState(msg)
                 } else {
                     if !vm.exploreNewReleases.isEmpty {
-                        sectionLabel("Yeni çıkanlar")
+                        sectionLabel(L10n.t("shell.explore.newReleases"))
                         ForEach(vm.exploreNewReleases) { ShelfRow(shelf: $0, vm: vm) }
                     }
                     if !vm.exploreCharts.isEmpty {
-                        sectionLabel("Listeler")
+                        sectionLabel(L10n.t("shell.explore.charts"))
                         ForEach(vm.exploreCharts) { ChartSectionView(section: $0, vm: vm) }
                     }
                     if !vm.genreSections.isEmpty {
-                        sectionLabel("Türler & ruh hâlleri")
+                        sectionLabel(L10n.t("shell.explore.genresMoods"))
                         ForEach(vm.genreSections) { GenreCarousel(section: $0, vm: vm) }
                     }
                     Spacer(minLength: 40)
@@ -1987,14 +1991,14 @@ private struct ExploreView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("KEŞFET")
+                Text(L10n.t("shell.explore.kindLabel"))
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(0.8)
                     .foregroundColor(.primary.opacity(0.55))
-                Text("Keşfet")
+                Text(L10n.t("shell.explore.title"))
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.primary)
-                Text("Yeni çıkanlar, listeler ve türler")
+                Text(L10n.t("shell.explore.subtitle"))
                     .font(.system(size: 12))
                     .foregroundColor(.primary.opacity(0.5))
             }
@@ -2008,7 +2012,7 @@ private struct ExploreView: View {
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
-            .help("Yenile")
+            .help(L10n.t("shell.action.refresh"))
         }
     }
 
@@ -2031,7 +2035,7 @@ private struct ExploreView: View {
             Text(msg)
                 .font(.system(size: 13))
                 .foregroundColor(.primary.opacity(0.6))
-            Button("Yeniden dene") { vm.reloadExplore() }
+            Button(L10n.t("common.retry")) { vm.reloadExplore() }
                 .buttonStyle(.plain)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
@@ -2065,21 +2069,21 @@ private struct ChartSectionView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        Button { vm.playTrack(track) } label: { Label("Oynat", systemImage: "play.fill") }
+                        Button { vm.playTrack(track) } label: { Label(L10n.t("transport.play"), systemImage: "play.fill") }
                         Button { vm.addToQueue(track: track, playNext: true) } label: {
-                            Label("Sıradaki olarak çal", systemImage: "text.line.first.and.arrowtriangle.forward")
+                            Label(L10n.t("shell.queue.playNext"), systemImage: "text.line.first.and.arrowtriangle.forward")
                         }
-                        Button { vm.addToQueue(track: track) } label: { Label("Kuyruğa ekle", systemImage: "text.append") }
+                        Button { vm.addToQueue(track: track) } label: { Label(L10n.t("shell.queue.add"), systemImage: "text.append") }
                         Button { vm.startRadio(track) } label: {
-                            Label("Radyo başlat", systemImage: "dot.radiowaves.left.and.right")
+                            Label(L10n.t("shell.action.startRadio"), systemImage: "dot.radiowaves.left.and.right")
                         }
                         Button { vm.startSimilarPlaylist(seed: track) } label: {
-                            Label("Benzerlerinden liste oluştur", systemImage: "square.stack.3d.up")
+                            Label(L10n.t("shell.action.similarPlaylist"), systemImage: "square.stack.3d.up")
                         }
                                                 Divider()
                         Menu {
                             Button { vm.beginCreatePlaylist(addingVideoId: track.id) } label: {
-                                Label("Yeni liste oluştur", systemImage: "plus")
+                                Label(L10n.t("shell.playlist.createNew"), systemImage: "plus")
                             }
                             if !vm.playlists.isEmpty { Divider() }
                             ForEach(vm.playlists) { p in
@@ -2088,11 +2092,11 @@ private struct ChartSectionView: View {
                                                      trackTitle: track.title, playlistTitle: p.title)
                                 }
                             }
-                        } label: { Label("Çalma listesine ekle", systemImage: "plus") }
+                        } label: { Label(L10n.t("shell.playlist.addTo"), systemImage: "plus") }
                         Button { vm.likeTrack(videoId: track.id, title: track.title) } label: {
-                            Label("Beğenilenlere kaydet", systemImage: "heart")
+                            Label(L10n.t("shell.action.saveToLiked"), systemImage: "heart")
                         }
-                        Button { vm.openInBrowser(videoId: track.id) } label: { Label("Tarayıcıda aç", systemImage: "safari") }
+                        Button { vm.openInBrowser(videoId: track.id) } label: { Label(L10n.t("shell.action.openInBrowser"), systemImage: "safari") }
                     }
                 }
             }
@@ -2136,15 +2140,15 @@ private func homeCardContextMenu(_ card: NativeShellViewModel.HomeCard,
         let t = NativeShellViewModel.TrackSummary(
             id: card.id, title: card.title, artist: card.subtitle,
             duration: nil, thumbnailURL: card.thumbnailURL)
-        Button { vm.openHomeCard(card) } label: { Label("Oynat", systemImage: "play.fill") }
+        Button { vm.openHomeCard(card) } label: { Label(L10n.t("transport.play"), systemImage: "play.fill") }
         Button { vm.addToQueue(track: t, playNext: true) } label: {
-            Label("Sıradaki olarak çal", systemImage: "text.line.first.and.arrowtriangle.forward")
+            Label(L10n.t("shell.queue.playNext"), systemImage: "text.line.first.and.arrowtriangle.forward")
         }
-        Button { vm.addToQueue(track: t) } label: { Label("Kuyruğa ekle", systemImage: "text.append") }
+        Button { vm.addToQueue(track: t) } label: { Label(L10n.t("shell.queue.add"), systemImage: "text.append") }
         Divider()
         Menu {
             Button { vm.beginCreatePlaylist(addingVideoId: card.id) } label: {
-                Label("Yeni liste oluştur", systemImage: "plus")
+                Label(L10n.t("shell.playlist.createNew"), systemImage: "plus")
             }
             if !vm.playlists.isEmpty { Divider() }
             ForEach(vm.playlists) { p in
@@ -2153,28 +2157,28 @@ private func homeCardContextMenu(_ card: NativeShellViewModel.HomeCard,
                                      trackTitle: card.title, playlistTitle: p.title)
                 }
             }
-        } label: { Label("Çalma listesine ekle", systemImage: "plus") }
+        } label: { Label(L10n.t("shell.playlist.addTo"), systemImage: "plus") }
         Button { vm.likeTrack(videoId: card.id, title: card.title) } label: {
-            Label("Beğenilenlere kaydet", systemImage: "heart")
+            Label(L10n.t("shell.action.saveToLiked"), systemImage: "heart")
         }
         Divider()
-        Button { vm.copyLink(videoId: card.id) } label: { Label("Bağlantıyı kopyala", systemImage: "link") }
-        Button { vm.openInBrowser(videoId: card.id) } label: { Label("Tarayıcıda aç", systemImage: "safari") }
+        Button { vm.copyLink(videoId: card.id) } label: { Label(L10n.t("shell.action.copyLink"), systemImage: "link") }
+        Button { vm.openInBrowser(videoId: card.id) } label: { Label(L10n.t("shell.action.openInBrowser"), systemImage: "safari") }
     case .playlist, .album:
         let p = NativeShellViewModel.PlaylistSummary(
             id: card.id, title: card.title, thumbnailURL: card.thumbnailURL)
-        Button { vm.playHomeCard(card) } label: { Label("Çal", systemImage: "play.fill") }
+        Button { vm.playHomeCard(card) } label: { Label(L10n.t("transport.play"), systemImage: "play.fill") }
         Button { vm.addCollectionToQueue(id: card.id, title: card.title) } label: {
-            Label("Kuyruğa ekle", systemImage: "text.append")
+            Label(L10n.t("shell.queue.add"), systemImage: "text.append")
         }
-        Button { vm.openHomeCard(card) } label: { Label("Aç", systemImage: "arrow.right.circle") }
+        Button { vm.openHomeCard(card) } label: { Label(L10n.t("common.open"), systemImage: "arrow.right.circle") }
         Button { vm.savePlaylistToLibrary(p) } label: {
-            Label("Kitaplığa kaydet", systemImage: "plus.circle")
+            Label(L10n.t("shell.library.save"), systemImage: "plus.circle")
         }
-        Button { vm.copyPlaylistLink(p) } label: { Label("Bağlantıyı kopyala", systemImage: "link") }
+        Button { vm.copyPlaylistLink(p) } label: { Label(L10n.t("shell.action.copyLink"), systemImage: "link") }
     case .artist:
         Button { vm.openArtist(browseId: card.id, name: card.title) } label: {
-            Label("Sanatçıya git", systemImage: "music.mic")
+            Label(L10n.t("shell.action.goToArtist"), systemImage: "music.mic")
         }
     }
 }
@@ -2251,7 +2255,7 @@ private struct CarouselSection<Item: Identifiable, Content: View>: View where It
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 if let s = subtitle, !s.isEmpty {
-                    Text(s.uppercased())
+                    Text(s.uppercased(with: L10n.locale))
                         .font(.system(size: 10, weight: .semibold))
                         .tracking(0.5)
                         .foregroundColor(.primary.opacity(0.5))
@@ -2546,17 +2550,17 @@ private struct PlaylistDetailView: View {
 
     private var selectionBar: some View {
         HStack(spacing: 12) {
-            Text("\(selectedIDs.count) seçili")
+            Text(L10n.t("shell.selectedCount", selectedIDs.count))
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.primary)
             Spacer()
-            Button("Tümünü seç") { selectAll() }
+            Button(L10n.t("shell.action.selectAll")) { selectAll() }
                 .buttonStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundColor(.primary.opacity(0.7))
             Menu {
                 Button { vm.beginCreatePlaylist(addingVideoIds: selectedVideoIds()); clearSelection() } label: {
-                    Label("Yeni liste oluştur", systemImage: "plus")
+                    Label(L10n.t("shell.playlist.createNew"), systemImage: "plus")
                 }
                 if !vm.playlists.isEmpty { Divider() }
                 ForEach(vm.playlists) { p in
@@ -2566,13 +2570,13 @@ private struct PlaylistDetailView: View {
                     }
                 }
             } label: {
-                Label("Çalma listesine ekle", systemImage: "plus")
+                Label(L10n.t("shell.playlist.addTo"), systemImage: "plus")
                     .font(.system(size: 12, weight: .semibold))
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
             if vm.isEditablePlaylist(playlist) {
-                Button("Listeden çıkar") {
+                Button(L10n.t("shell.playlist.removeFrom")) {
                     vm.removeFromPlaylist(tracks: displayedTracks.filter { selectedIDs.contains($0.id) }, from: playlist)
                     clearSelection()
                 }
@@ -2580,7 +2584,7 @@ private struct PlaylistDetailView: View {
                 .font(.system(size: 12))
                 .foregroundColor(.red.opacity(0.9))
             }
-            Button("Temizle") { clearSelection() }
+            Button(L10n.t("shell.action.clear")) { clearSelection() }
                 .buttonStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundColor(.primary.opacity(0.7))
@@ -2623,7 +2627,7 @@ private struct PlaylistDetailView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11))
                     .foregroundColor(.primary.opacity(0.45))
-                TextField("Listede ara", text: $searchText)
+                TextField(L10n.t("shell.playlist.searchPlaceholder"), text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                     .foregroundColor(.primary)
@@ -2645,7 +2649,7 @@ private struct PlaylistDetailView: View {
             .frame(maxWidth: 260)
             Spacer()
             if !searchText.isEmpty {
-                Text("\(displayedTracks.count) sonuç")
+                Text(L10n.plural("shell.resultCount", displayedTracks.count))
                     .font(.system(size: 11))
                     .foregroundColor(.primary.opacity(0.5))
             }
@@ -2660,10 +2664,10 @@ private struct PlaylistDetailView: View {
         HStack(spacing: 12) {
             sortHeader(field: .index) { Text("#") }
                 .frame(width: 28, alignment: .trailing)
-            sortHeader(field: .title) { Text("Başlık") }
+            sortHeader(field: .title) { Text(L10n.t("shell.column.title")) }
                 .frame(maxWidth: .infinity, alignment: .leading)
             if showAlbumColumn {
-                sortHeader(field: .album) { Text("Albüm") }
+                sortHeader(field: .album) { Text(L10n.t("shell.column.album")) }
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             sortHeader(field: .duration) {
@@ -2695,15 +2699,15 @@ private struct PlaylistDetailView: View {
 
     /// Header label for the detail view — derived from the browseId
     /// prefix so albums get "ALBUM", everything else stays "PLAYLIST".
-    /// MPRE… / OLAK… are YT's album id namespaces.
     private var kindLabel: String {
-        let id = playlist.id
-        if id.hasPrefix("MPRE") || id.hasPrefix("OLAK") { return "ALBUM" }
-        if id.hasPrefix("VLPL") || id.hasPrefix("VLRDA") { return "PLAYLIST" }
-        return "PLAYLIST"
+        L10n.t(isAlbum ? "shell.detail.album" : "shell.detail.playlist")
     }
 
-    private var isAlbum: Bool { kindLabel == "ALBUM" }
+    /// MPRE… / OLAK… are YT's album id namespaces; everything else
+    /// (VLPL…, VLRDA…) is a playlist.
+    private var isAlbum: Bool {
+        playlist.id.hasPrefix("MPRE") || playlist.id.hasPrefix("OLAK")
+    }
 
     private var header: some View {
         HStack(spacing: 16) {
@@ -2758,7 +2762,7 @@ private struct PlaylistDetailView: View {
                 .background(Circle().fill(accentGreen))
         }
         .buttonStyle(.plain)
-        .help(isThisPlaying ? "Duraklat" : "Oynat")
+        .help(L10n.t(isThisPlaying ? "transport.pause" : "transport.play"))
     }
 
     private var shuffleButton: some View {
@@ -2770,7 +2774,7 @@ private struct PlaylistDetailView: View {
                 .background(Circle().fill(Color.primary.opacity(0.1)))
         }
         .buttonStyle(.plain)
-        .help("Karıştır")
+        .help(L10n.t("shell.action.shuffle"))
     }
 
     private var queueAllButton: some View {
@@ -2782,7 +2786,7 @@ private struct PlaylistDetailView: View {
                 .background(Circle().fill(Color.primary.opacity(0.1)))
         }
         .buttonStyle(.plain)
-        .help("Tümünü kuyruğa ekle")
+        .help(L10n.t("shell.queue.addAll"))
     }
 
     private var albumSaveButton: some View {
@@ -2790,7 +2794,7 @@ private struct PlaylistDetailView: View {
             HStack(spacing: 6) {
                 Image(systemName: vm.isAlbumSaved ? "checkmark.circle.fill" : "plus.circle.fill")
                     .font(.system(size: 13))
-                Text(vm.isAlbumSaved ? "Kaydedildi" : "Kaydet")
+                Text(L10n.t(vm.isAlbumSaved ? "shell.library.saved" : "common.save"))
                     .font(.system(size: 12, weight: .semibold))
             }
             .foregroundColor(.white)
@@ -2806,12 +2810,12 @@ private struct PlaylistDetailView: View {
             )
         }
         .buttonStyle(.plain)
-        .help(vm.isAlbumSaved ? "Kitaplıktan çıkar" : "Albümü kitaplığa kaydet")
+        .help(L10n.t(vm.isAlbumSaved ? "shell.library.remove" : "shell.library.saveAlbum"))
     }
 
     /// "98 tracks · 5h 32min" — duration is summed from track row strings.
     private var metaLine: String {
-        let trackPart = "\(vm.tracks.count) tracks"
+        let trackPart = L10n.plural("shell.trackCount", vm.tracks.count)
         guard let dur = formattedTotalDuration else { return trackPart }
         return "\(trackPart) · \(dur)"
     }
@@ -2823,7 +2827,8 @@ private struct PlaylistDetailView: View {
         guard total > 0 else { return nil }
         let h = total / 3600
         let m = (total % 3600) / 60
-        return h > 0 ? "\(h)h \(m)min" : "\(m)min"
+        return h > 0 ? L10n.t("shell.duration.hoursMinutes", h, m)
+                     : L10n.t("shell.duration.minutes", m)
     }
 
     private func parseDurationSeconds(_ s: String?) -> Int? {
@@ -2848,7 +2853,7 @@ private struct PlaylistDetailView: View {
             HStack(spacing: 6) {
                 Image(systemName: saved ? "checkmark.circle.fill" : "plus.circle.fill")
                     .font(.system(size: 13))
-                Text(saved ? "Kaydedildi" : "Kaydet")
+                Text(L10n.t(saved ? "shell.library.saved" : "common.save"))
                     .font(.system(size: 12, weight: .semibold))
             }
             .foregroundColor(.primary)
@@ -2864,7 +2869,7 @@ private struct PlaylistDetailView: View {
             )
         }
         .buttonStyle(.plain)
-        .help(saved ? "Kitaplığından çıkar" : "Kitaplığına kaydet")
+        .help(L10n.t(saved ? "shell.library.remove" : "shell.library.save"))
     }
 
     @ViewBuilder
@@ -2888,7 +2893,7 @@ private struct PlaylistDetailView: View {
         if vm.loadingTracks && vm.tracks.isEmpty {
             VStack {
                 ProgressView()
-                Text("Şarkılar yükleniyor…")
+                Text(L10n.t("shell.tracks.loading"))
                     .font(.system(size: 12))
                     .foregroundColor(.primary.opacity(0.5))
                     .padding(.top, 8)
@@ -2904,7 +2909,7 @@ private struct PlaylistDetailView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 22, weight: .light))
                     .foregroundColor(.primary.opacity(0.3))
-                Text("“\(searchText)” için sonuç yok")
+                Text(L10n.t("shell.search.noResultsFor", searchText))
                     .font(.system(size: 12))
                     .foregroundColor(.primary.opacity(0.5))
             }
@@ -2954,21 +2959,21 @@ private struct PlaylistDetailView: View {
 
     @ViewBuilder
     private func trackContextMenu(for t: NativeShellViewModel.TrackSummary) -> some View {
-        Button { vm.playTrack(t) } label: { Label("Oynat", systemImage: "play.fill") }
+        Button { vm.playTrack(t) } label: { Label(L10n.t("transport.play"), systemImage: "play.fill") }
         Button { vm.addToQueue(track: t, playNext: true) } label: {
-            Label("Sıradaki olarak çal", systemImage: "text.line.first.and.arrowtriangle.forward")
+            Label(L10n.t("shell.queue.playNext"), systemImage: "text.line.first.and.arrowtriangle.forward")
         }
-        Button { vm.addToQueue(track: t) } label: { Label("Kuyruğa ekle", systemImage: "text.append") }
+        Button { vm.addToQueue(track: t) } label: { Label(L10n.t("shell.queue.add"), systemImage: "text.append") }
         Button { vm.startRadio(t) } label: {
-            Label("Radyo başlat", systemImage: "dot.radiowaves.left.and.right")
+            Label(L10n.t("shell.action.startRadio"), systemImage: "dot.radiowaves.left.and.right")
         }
         Button { vm.startSimilarPlaylist(seed: t) } label: {
-            Label("Benzerlerinden liste oluştur", systemImage: "square.stack.3d.up")
+            Label(L10n.t("shell.action.similarPlaylist"), systemImage: "square.stack.3d.up")
         }
                 Divider()
         Menu {
             Button { vm.beginCreatePlaylist(addingVideoId: t.id) } label: {
-                Label("Yeni liste oluştur", systemImage: "plus")
+                Label(L10n.t("shell.playlist.createNew"), systemImage: "plus")
             }
             if !vm.playlists.isEmpty { Divider() }
             ForEach(vm.playlists) { p in
@@ -2979,33 +2984,33 @@ private struct PlaylistDetailView: View {
                                      playlistTitle: p.title)
                 }
             }
-        } label: { Label("Çalma listesine ekle", systemImage: "plus") }
+        } label: { Label(L10n.t("shell.playlist.addTo"), systemImage: "plus") }
         Button { vm.likeTrack(videoId: t.id, title: t.title) } label: {
-            Label("Beğenilenlere kaydet", systemImage: "heart")
+            Label(L10n.t("shell.action.saveToLiked"), systemImage: "heart")
         }
         Button { vm.dislikeTrack(videoId: t.id, title: t.title) } label: {
-            Label("Beğenme", systemImage: "hand.thumbsdown")
+            Label(L10n.t("shell.action.dislike"), systemImage: "hand.thumbsdown")
         }
         Divider()
         if let aid = t.artistId {
             Button { vm.openArtist(browseId: aid, name: t.artist) } label: {
-                Label("Sanatçıya git", systemImage: "music.mic")
+                Label(L10n.t("shell.action.goToArtist"), systemImage: "music.mic")
             }
         }
         if let alid = t.albumId {
             Button { vm.openAlbum(albumId: alid, title: t.album ?? "", thumbnailURL: t.thumbnailURL) } label: {
-                Label("Albüme git", systemImage: "opticaldisc")
+                Label(L10n.t("shell.action.goToAlbum"), systemImage: "opticaldisc")
             }
         }
         if vm.isEditablePlaylist(playlist) {
             Divider()
             Button(role: .destructive) {
                 vm.removeFromPlaylist(tracks: [t], from: playlist)
-            } label: { Label("Listeden çıkar", systemImage: "minus.circle") }
+            } label: { Label(L10n.t("shell.playlist.removeFrom"), systemImage: "minus.circle") }
         }
         Divider()
-        Button { vm.copyLink(videoId: t.id) } label: { Label("Bağlantıyı kopyala", systemImage: "link") }
-        Button { vm.openInBrowser(videoId: t.id) } label: { Label("Tarayıcıda aç", systemImage: "safari") }
+        Button { vm.copyLink(videoId: t.id) } label: { Label(L10n.t("shell.action.copyLink"), systemImage: "link") }
+        Button { vm.openInBrowser(videoId: t.id) } label: { Label(L10n.t("shell.action.openInBrowser"), systemImage: "safari") }
     }
 }
 
@@ -3084,7 +3089,7 @@ private struct TrackRow: View {
             .frame(width: 28, alignment: .trailing)
 
             // Title column: artwork + title/artist. Flexible so it aligns
-            // with the "Başlık" header.
+            // with the title column header.
             HStack(spacing: 12) {
                 cover
                     .frame(width: 36, height: 36)
@@ -3119,7 +3124,7 @@ private struct TrackRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Klibi oynat")
+                .help(L10n.t("shell.action.playClip"))
             }
 
             Text(track.duration ?? "")
@@ -3225,7 +3230,7 @@ private struct PlayerBar: View {
         HStack(spacing: 12) {
             artwork
             VStack(alignment: .leading, spacing: 2) {
-                Text(media.nowPlaying.hasTrack ? media.nowPlaying.title : "Not Playing")
+                Text(media.nowPlaying.hasTrack ? media.nowPlaying.title : L10n.t("shell.player.notPlaying"))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.primary)
                     .lineLimit(1)
@@ -3240,7 +3245,7 @@ private struct PlayerBar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Sanatçıya git")
+                .help(L10n.t("shell.action.goToArtist"))
                 .disabled(media.nowPlaying.artist.isEmpty)
             }
             addButton
@@ -3260,20 +3265,20 @@ private struct PlayerBar: View {
                 id: np.videoId, title: np.title, artist: np.artist,
                 duration: nil, thumbnailURL: np.artworkURL)
             Button { vm.startRadio(t) } label: {
-                Label("Radyo başlat", systemImage: "dot.radiowaves.left.and.right")
+                Label(L10n.t("shell.action.startRadio"), systemImage: "dot.radiowaves.left.and.right")
             }
             Button { vm.startSimilarPlaylist(seed: t) } label: {
-                Label("Benzerlerinden liste oluştur", systemImage: "square.stack.3d.up")
+                Label(L10n.t("shell.action.similarPlaylist"), systemImage: "square.stack.3d.up")
             }
                         if !np.artist.isEmpty {
                 Button { vm.openArtistByName(np.artist) } label: {
-                    Label("Sanatçıya git", systemImage: "music.mic")
+                    Label(L10n.t("shell.action.goToArtist"), systemImage: "music.mic")
                 }
             }
             Divider()
             Menu {
                 Button { vm.beginCreatePlaylist(addingVideoId: np.videoId) } label: {
-                    Label("Yeni liste oluştur", systemImage: "plus")
+                    Label(L10n.t("shell.playlist.createNew"), systemImage: "plus")
                 }
                 if !vm.playlists.isEmpty { Divider() }
                 ForEach(vm.playlists) { p in
@@ -3282,17 +3287,17 @@ private struct PlayerBar: View {
                                          trackTitle: np.title, playlistTitle: p.title)
                     }
                 }
-            } label: { Label("Çalma listesine ekle", systemImage: "plus") }
+            } label: { Label(L10n.t("shell.playlist.addTo"), systemImage: "plus") }
             Button { media.run("like") } label: {
-                Label(np.liked ? "Beğeniyi kaldır" : "Beğen",
+                Label(L10n.t(np.liked ? "transport.unlike" : "transport.like"),
                       systemImage: np.liked ? "heart.fill" : "heart")
             }
             Divider()
             Button { vm.copyLink(videoId: np.videoId) } label: {
-                Label("Bağlantıyı kopyala", systemImage: "link")
+                Label(L10n.t("shell.action.copyLink"), systemImage: "link")
             }
             Button { vm.openInBrowser(videoId: np.videoId) } label: {
-                Label("Tarayıcıda aç", systemImage: "safari")
+                Label(L10n.t("shell.action.openInBrowser"), systemImage: "safari")
             }
         }
     }
@@ -3308,7 +3313,7 @@ private struct PlayerBar: View {
         }
         .buttonStyle(.plain)
         .disabled(!media.nowPlaying.hasTrack)
-        .help("Beğenilenlere ekle")
+        .help(L10n.t("shell.action.saveToLiked"))
     }
 
     // MARK: Center — transport + progress
@@ -3337,7 +3342,7 @@ private struct PlayerBar: View {
                 .foregroundColor(media.nowPlaying.shuffle ? activeTint : .primary.opacity(0.6))
         }
         .buttonStyle(.plain)
-        .help("Karıştır")
+        .help(L10n.t("shell.action.shuffle"))
     }
 
     private var repeatButton: some View {
@@ -3348,7 +3353,7 @@ private struct PlayerBar: View {
                 .foregroundColor(mode == "NONE" ? .primary.opacity(0.6) : activeTint)
         }
         .buttonStyle(.plain)
-        .help("Tekrarla")
+        .help(L10n.t("shell.action.repeat"))
     }
 
     private var playButton: some View {
@@ -3420,7 +3425,7 @@ private struct PlayerBar: View {
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
-        .help("Tema")
+        .help(L10n.t("shell.theme.title"))
     }
 
     private var lyricsToggle: some View {
@@ -3433,7 +3438,7 @@ private struct PlayerBar: View {
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
-        .help("Sözleri göster")
+        .help(L10n.t("shell.lyrics.toggleHelp"))
     }
 
     private var queueToggle: some View {
@@ -3446,7 +3451,7 @@ private struct PlayerBar: View {
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
-        .help("Kuyruğu aç/kapat (⌘E)")
+        .help(L10n.t("shell.queue.toggleHelp"))
     }
 
     private func format(_ seconds: Double) -> String {
@@ -3481,7 +3486,7 @@ private struct PlayerBar: View {
         }
         .onHover { artworkHovered = $0 }
         .onTapGesture { if media.nowPlaying.hasTrack { vm.toggleNowPlaying() } }
-        .help("Şimdi çalıyor (⌘F)")
+        .help(L10n.t("shell.player.nowPlayingHelp"))
     }
 }
 
@@ -3510,7 +3515,7 @@ private struct LyricsPanel: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text("Sözler")
+                Text(L10n.t("shell.lyrics.title"))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.primary)
                 Spacer()
@@ -3541,7 +3546,7 @@ private struct LyricsPanel: View {
         if vm.lyricsLoading && vm.lyrics == nil {
             VStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Sözler yükleniyor…")
+                Text(L10n.t("shell.lyrics.loading"))
                     .font(.system(size: 12))
                     .foregroundColor(.primary.opacity(0.5))
             }
@@ -3566,7 +3571,7 @@ private struct LyricsPanel: View {
                 Image(systemName: "text.quote")
                     .font(.system(size: 24, weight: .light))
                     .foregroundColor(.primary.opacity(0.3))
-                Text("Çalan şarkı yok")
+                Text(L10n.t("shell.lyrics.noTrack"))
                     .font(.system(size: 12))
                     .foregroundColor(.primary.opacity(0.5))
             }
@@ -3589,9 +3594,9 @@ private struct ThemePanel: View {
             Divider().background(Color.primary.opacity(0.08))
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
-                    sectionLabel("Açık")
+                    sectionLabel(L10n.t("shell.theme.light"))
                     ForEach(Theme.allCases.filter { !$0.isDark }) { row($0) }
-                    sectionLabel("Koyu")
+                    sectionLabel(L10n.t("shell.theme.dark"))
                     ForEach(Theme.allCases.filter { $0.isDark }) { row($0) }
                 }
                 .padding(10)
@@ -3603,7 +3608,7 @@ private struct ThemePanel: View {
     }
 
     private func sectionLabel(_ s: String) -> some View {
-        Text(s.uppercased())
+        Text(s.uppercased(with: L10n.locale))
             .font(.system(size: 10, weight: .semibold))
             .tracking(0.8)
             .foregroundColor(.primary.opacity(0.45))
@@ -3614,7 +3619,7 @@ private struct ThemePanel: View {
 
     private var header: some View {
         HStack {
-            Text("Tema")
+            Text(L10n.t("shell.theme.title"))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.primary)
             Spacer()
@@ -3699,7 +3704,7 @@ private struct VolumeControl: View {
                     .frame(width: 24, height: 30)
             }
             .buttonStyle(.plain)
-            .help("Sessize al")
+            .help(L10n.t("shell.volume.mute"))
             Slider(value: $localVolume, in: 0...1) { editing in
                 isDragging = editing
                 if !editing { media.run("volume", value: localVolume) }
@@ -3731,18 +3736,23 @@ private struct SleepTimerControl: View {
     @State private var showMenu: Bool = false
 
     private struct Option: Identifiable {
-        let id = UUID()
+        /// Label-keyed rather than a fresh UUID: `options` is now computed
+        /// (it reads the catalog), so a random id would churn ForEach
+        /// identity on every render.
+        var id: String { label }
         let label: String
         let mode: SleepTimer.Mode
     }
 
-    private let options: [Option] = [
-        .init(label: "5 dakika",         mode: .duration(5 * 60)),
-        .init(label: "15 dakika",        mode: .duration(15 * 60)),
-        .init(label: "30 dakika",        mode: .duration(30 * 60)),
-        .init(label: "1 saat",           mode: .duration(60 * 60)),
-        .init(label: "Şarkı bitince",     mode: .endOfTrack)
-    ]
+    private var options: [Option] {
+        [
+            .init(label: L10n.plural("shell.sleep.minutes", 5),  mode: .duration(5 * 60)),
+            .init(label: L10n.plural("shell.sleep.minutes", 15), mode: .duration(15 * 60)),
+            .init(label: L10n.plural("shell.sleep.minutes", 30), mode: .duration(30 * 60)),
+            .init(label: L10n.plural("shell.sleep.hours", 1),    mode: .duration(60 * 60)),
+            .init(label: L10n.t("shell.sleep.endOfTrack"),       mode: .endOfTrack)
+        ]
+    }
 
     private var iconName: String {
         sleep.isActive ? "moon.fill" : "moon"
@@ -3754,7 +3764,7 @@ private struct SleepTimerControl: View {
             let ss = Int(r) % 60
             return String(format: "%d:%02d", mm, ss)
         }
-        if case .endOfTrack? = sleep.mode { return "EoT" }
+        if case .endOfTrack? = sleep.mode { return L10n.t("shell.sleep.eot") }
         return nil
     }
 
@@ -3776,10 +3786,10 @@ private struct SleepTimerControl: View {
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help("Uyku zamanlayıcı")
+        .help(L10n.t("shell.sleep.title"))
         .popover(isPresented: $showMenu, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("UYKU ZAMANLAYICI")
+                Text(L10n.t("shell.sleep.header"))
                     .font(.system(size: 10, weight: .semibold))
                     .tracking(0.6)
                     .foregroundColor(.primary.opacity(0.55))
@@ -3805,7 +3815,7 @@ private struct SleepTimerControl: View {
                         sleep.cancel()
                         showMenu = false
                     }) {
-                        Text("İptal")
+                        Text(L10n.t("common.cancel"))
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(.red.opacity(0.85))
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -3876,7 +3886,7 @@ private struct QueuePanel: View {
 
     private var header: some View {
         HStack {
-            Text("Kuyruk")
+            Text(L10n.t("shell.queue.title"))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.primary)
             Spacer()
@@ -3904,10 +3914,10 @@ private struct QueuePanel: View {
                 Image(systemName: "music.note.list")
                     .font(.system(size: 24, weight: .light))
                     .foregroundColor(.primary.opacity(0.3))
-                Text("Kuyruk boş")
+                Text(L10n.t("shell.queue.empty"))
                     .font(.system(size: 12))
                     .foregroundColor(.primary.opacity(0.45))
-                Text("Bir şarkıya sağ tıkla → Kuyruğa ekle.")
+                Text(L10n.t("shell.queue.emptyHint"))
                     .font(.system(size: 10))
                     .foregroundColor(.primary.opacity(0.3))
             }
@@ -3930,8 +3940,8 @@ private struct QueuePanel: View {
                             .onDrop(of: [UTType.text],
                                     delegate: OwnQueueDropDelegate(targetId: item.id, vm: vm, draggedId: $draggedId))
                             .contextMenu {
-                                Button("Şimdi çal") { vm.playOwnQueueItem(item) }
-                                Button("Kaldır") { vm.removeFromOwnQueue(item) }
+                                Button(L10n.t("shell.queue.playNow")) { vm.playOwnQueueItem(item) }
+                                Button(L10n.t("shell.action.remove")) { vm.removeFromOwnQueue(item) }
                             }
                         }
                         Divider().background(Color.primary.opacity(0.1))
@@ -3953,13 +3963,13 @@ private struct QueuePanel: View {
 
     private var ownQueueHeader: some View {
         HStack {
-            Text("SIRADAKİLER")
+            Text(L10n.t("shell.queue.upNext"))
                 .font(.system(size: 10, weight: .semibold))
                 .tracking(0.6)
                 .foregroundColor(.primary.opacity(0.5))
             Spacer()
             Button(action: { vm.clearOwnQueue() }) {
-                Text("Temizle")
+                Text(L10n.t("shell.action.clear"))
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(.primary.opacity(0.55))
             }
@@ -3972,15 +3982,15 @@ private struct QueuePanel: View {
 
     @ViewBuilder
     private func queueContextMenu(for item: NativeShellViewModel.QueueItem) -> some View {
-        Button("Bu parçaya atla") { vm.jumpToQueueIndex(item.id) }
+        Button(L10n.t("shell.queue.jumpTo")) { vm.jumpToQueueIndex(item.id) }
         if let vid = item.videoId {
             Divider()
-            Button("Beğen") { vm.likeTrack(videoId: vid, title: item.title) }
-            Button("Beğenme") { vm.dislikeTrack(videoId: vid, title: item.title) }
+            Button(L10n.t("transport.like")) { vm.likeTrack(videoId: vid, title: item.title) }
+            Button(L10n.t("shell.action.dislike")) { vm.dislikeTrack(videoId: vid, title: item.title) }
             Divider()
-            Menu("Çalma listesine ekle") {
+            Menu(L10n.t("shell.playlist.addTo")) {
                 if vm.playlists.isEmpty {
-                    Text("Listeler yükleniyor…")
+                    Text(L10n.t("shell.playlists.loading"))
                 } else {
                     ForEach(vm.playlists) { p in
                         Button(p.title) {
@@ -3993,7 +4003,7 @@ private struct QueuePanel: View {
                 }
             }
             Divider()
-            Button("Tarayıcıda aç") { vm.openInBrowser(videoId: vid) }
+            Button(L10n.t("shell.action.openInBrowser")) { vm.openInBrowser(videoId: vid) }
         }
     }
 }
@@ -4015,7 +4025,7 @@ private struct OwnQueueRow: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.primary)
                     .lineLimit(1)
-                Text(item.artist.isEmpty ? "Manual" : item.artist)
+                Text(item.artist.isEmpty ? L10n.t("shell.queue.manual") : item.artist)
                     .font(.system(size: 10))
                     .foregroundColor(.primary.opacity(0.5))
                     .lineLimit(1)

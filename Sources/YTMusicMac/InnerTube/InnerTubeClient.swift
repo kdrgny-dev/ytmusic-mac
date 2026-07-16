@@ -265,6 +265,11 @@ actor InnerTubeClient {
 
     private func clientDict(mobile: Bool = false) -> [String: Any] {
         if mobile {
+            // Pinned to en/US. This client only exists for timed lyrics and it
+            // is fragile — the working configuration was found by trial (see
+            // the anonymous-session note in `post`). The user's language has
+            // no business here: lyrics come back in whatever language the
+            // track is in, not `hl`.
             return [
                 "clientName": "ANDROID_MUSIC",
                 "clientVersion": Self.androidMusicVersion,
@@ -275,8 +280,8 @@ actor InnerTubeClient {
         return [
             "clientName": "WEB_REMIX",
             "clientVersion": "1.20240801.01.00",
-            "hl": "en",
-            "gl": "US"
+            "hl": LocaleSnapshot.language.code,
+            "gl": LocaleSnapshot.region.code
         ]
     }
 

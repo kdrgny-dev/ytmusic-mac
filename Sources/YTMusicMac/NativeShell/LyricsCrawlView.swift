@@ -104,8 +104,8 @@ struct LyricsCrawlView: View {
     }
 }
 
-/// Full-window crawl surface shown when "Klip" is opened on a track with no
-/// music video — a black screen would be worse than lyrics flowing up.
+/// Full-window crawl surface shown when the video pill is opened on a track
+/// with no music video — a black screen would be worse than lyrics flowing up.
 struct ClipCrawlScreen: View {
     @ObservedObject var vm: NativeShellViewModel
     @EnvironmentObject private var media: MediaController
@@ -147,7 +147,7 @@ struct ClipCrawlScreen: View {
         case .loading:
             VStack(spacing: 12) {
                 ProgressView().tint(.white)
-                Text("Klip yükleniyor…")
+                Text(L10n.t("lyrics.clipLoading"))
                     .font(.system(size: 13))
                     .foregroundColor(.white.opacity(0.6))
             }
@@ -167,7 +167,7 @@ struct ClipCrawlScreen: View {
         } else if vm.lyricsLoading {
             ProgressView().tint(.white)
         } else {
-            Text(vm.lyricsError ?? "Sözler bulunamadı")
+            Text(vm.lyricsError ?? L10n.t("lyrics.notFound"))
                 .font(.system(size: 14))
                 .foregroundColor(.white.opacity(0.6))
         }
@@ -179,7 +179,7 @@ struct ClipCrawlScreen: View {
                 Button(action: { vm.exitClipCrawl() }) {
                     HStack(spacing: 6) {
                         Image(systemName: "chevron.left")
-                        Text("Kapat")
+                        Text(L10n.t("common.close"))
                     }
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white)
@@ -188,7 +188,7 @@ struct ClipCrawlScreen: View {
                     .background(Capsule().fill(Color.white.opacity(0.18)))
                 }
                 .buttonStyle(.plain)
-                .help("Kapat (Esc)")
+                .help(L10n.t("lyrics.close.help"))
 
                 if media.nowPlaying.hasTrack {
                     VStack(alignment: .leading, spacing: 1) {

@@ -19,7 +19,7 @@ final class SettingsWindowController {
     private func build() {
         let hosting = NSHostingController(rootView: SettingsView())
         let w = NSWindow(contentViewController: hosting)
-        w.title = "Settings"
+        w.title = L10n.t("settings.windowTitle")
         w.styleMask = [.titled, .closable, .miniaturizable]
         w.isReleasedWhenClosed = false
         w.identifier = NSUserInterfaceItemIdentifier("settings")

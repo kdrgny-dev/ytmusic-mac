@@ -82,7 +82,7 @@ final class NativeShellViewModel: ObservableObject {
     func resetPlaylistOrder() {
         playlistOrder = []
         UserDefaults.standard.removeObject(forKey: playlistOrderKey)
-        showToast("Sıralama sıfırlandı")
+        showToast(L10n.t("vm.toast.orderReset"))
     }
 
     @Published private(set) var loadingPlaylists = false
@@ -119,17 +119,17 @@ final class NativeShellViewModel: ObservableObject {
     /// Toggle the open album in/out of the library via its feedback token.
     func toggleAlbumSaved() {
         let token = isAlbumSaved ? albumRemoveToken : albumAddToken
-        guard let token else { showToast("Bu albüm kaydedilemiyor"); return }
+        guard let token else { showToast(L10n.t("vm.toast.albumNotSavable")); return }
         let willSave = !isAlbumSaved
         isAlbumSaved = willSave
         Task {
             do {
                 _ = try await client.sendFeedback(token: token)
-                showToast(willSave ? "Albüm kitaplığa eklendi" : "Albüm kitaplıktan çıkarıldı")
+                showToast(L10n.t(willSave ? "vm.toast.albumSaved" : "vm.toast.albumRemoved"))
                 await loadPlaylists() // refresh sidebar
             } catch {
                 isAlbumSaved = !willSave // revert on failure
-                showToast("İşlem başarısız")
+                showToast(L10n.t("vm.toast.actionFailed"))
             }
         }
     }
@@ -283,10 +283,10 @@ final class NativeShellViewModel: ObservableObject {
             do {
                 let data = try await client.search(query: name, params: SearchKind.artist.filterParam)
                 let results = SearchResultsParser.parse(data: data).filter { $0.kind == .artist }
-                guard let first = results.first else { showToast("Sanatçı bulunamadı"); return }
+                guard let first = results.first else { showToast(L10n.t("vm.toast.artistNotFound")); return }
                 openArtist(browseId: first.id, name: first.title)
             } catch {
-                showToast("Sanatçı açılamadı")
+                showToast(L10n.t("vm.toast.artistOpenFailed"))
             }
         }
     }
@@ -316,11 +316,13 @@ final class NativeShellViewModel: ObservableObject {
             let parsed = ArtistParser.parse(data: data, browseId: browseId)
             guard reqID == artistRequestID else { return }
             artistDetail = parsed
-            artistError = parsed == nil ? "\(title.isEmpty ? "Sanatçı" : title) yüklenemedi." : nil
+            artistError = parsed == nil
+                ? (title.isEmpty ? L10n.t("vm.error.artistFailed") : L10n.t("vm.error.entityFailed", title))
+                : nil
         } catch {
             guard reqID == artistRequestID else { return }
             noteFailure(error)
-            artistError = "Sanatçı yüklenemedi."
+            artistError = L10n.t("vm.error.artistFailed")
         }
     }
 
@@ -413,10 +415,10 @@ final class NativeShellViewModel: ObservableObject {
         /// Title shown in the tab picker.
         var label: String {
             switch self {
-            case .playlist: return "Çalma listeleri"
-            case .song:     return "Şarkılar"
-            case .artist:   return "Sanatçılar"
-            case .album:    return "Albümler"
+            case .playlist: return L10n.t("vm.search.tab.playlists")
+            case .song:     return L10n.t("vm.search.tab.songs")
+            case .artist:   return L10n.t("vm.search.tab.artists")
+            case .album:    return L10n.t("vm.search.tab.albums")
             }
         }
 
@@ -538,15 +540,15 @@ final class NativeShellViewModel: ObservableObject {
 
         var message: String {
             switch self {
-            case .offline:  return "İnternet bağlantısı yok."
-            case .signedOut: return "YT Music oturumun düşmüş. Kitaplığın ve beğenilerin yüklenemiyor."
+            case .offline:  return L10n.t("vm.banner.offline")
+            case .signedOut: return L10n.t("vm.banner.signedOut")
             }
         }
 
         var actionTitle: String {
             switch self {
-            case .offline:  return "Yeniden dene"
-            case .signedOut: return "Giriş yap"
+            case .offline:  return L10n.t("common.retry")
+            case .signedOut: return L10n.t("vm.banner.signIn")
             }
         }
     }
@@ -734,7 +736,7 @@ final class NativeShellViewModel: ObservableObject {
     private func loadPlaylists() async {
         isAuthenticated = auth.isAuthenticated
         guard isAuthenticated else {
-            errorMessage = "Kitaplığını görmek için YT Music'e giriş yap."
+            errorMessage = L10n.t("vm.error.libraryNeedsSignIn")
             return
         }
         loadingPlaylists = true
@@ -744,11 +746,11 @@ final class NativeShellViewModel: ObservableObject {
             // liked" landing page — same data backing the web sidebar.
             let data = try await client.browse(browseId: "FEmusic_liked_playlists")
             playlists = PlaylistParser.parse(data: data)
-            errorMessage = playlists.isEmpty ? "Henüz çalma listen yok." : nil
+            errorMessage = playlists.isEmpty ? L10n.t("vm.error.noPlaylists") : nil
             noteSuccess()
         } catch {
             noteFailure(error)
-            errorMessage = "Kitaplık yüklenemedi."
+            errorMessage = L10n.t("vm.error.libraryFailed")
         }
     }
 
@@ -813,11 +815,11 @@ final class NativeShellViewModel: ObservableObject {
             let cards = CategoryParser.parse(data: data)
             guard reqID == categoryRequestID else { return }
             categoryPlaylists = cards
-            categoryError = cards.isEmpty ? "Bu kategoride çalma listesi yok." : nil
+            categoryError = cards.isEmpty ? L10n.t("vm.error.categoryEmpty") : nil
         } catch {
             guard reqID == categoryRequestID else { return }
             noteFailure(error)
-            categoryError = "Bu kategori yüklenemedi."
+            categoryError = L10n.t("vm.error.categoryFailed")
         }
     }
 
@@ -885,7 +887,7 @@ final class NativeShellViewModel: ObservableObject {
             // playlist while this one was loading.
             guard selectedPlaylist?.id == p.id else { return }
             tracks = all
-            tracksError = all.isEmpty ? "Bu liste boş." : nil
+            tracksError = all.isEmpty ? L10n.t("vm.error.playlistEmpty") : nil
             // An album's browseId (MPRE…) is not a valid /watch?list= value,
             // so YT would drop the queue and leave Next dead. Its real
             // playlist (OLAK5uy_…) is in the browse response — dig it out
@@ -922,7 +924,7 @@ final class NativeShellViewModel: ObservableObject {
         } catch {
             guard selectedPlaylist?.id == p.id else { return }
             noteFailure(error)
-            tracksError = "Şarkılar yüklenemedi."
+            tracksError = L10n.t("vm.error.tracksFailed")
         }
     }
 
@@ -962,7 +964,7 @@ final class NativeShellViewModel: ObservableObject {
         guard let url = URL(string: urlStr) else { return }
         nowPlayingCollectionId = nil
         WebViewHolder.shared.webView?.load(URLRequest(url: url))
-        showToast("Radyo başlatılıyor")
+        showToast(L10n.t("vm.toast.radioStarting"))
     }
 
     // MARK: - Similar-track playlist (Last.fm)
@@ -988,15 +990,15 @@ final class NativeShellViewModel: ObservableObject {
     /// A sensible default the overlay pre-fills; the user can edit it.
     var similarDefaultTitle: String {
         guard let s = similarSeed else { return "" }
-        return "\(s.title) — Benzerler"
+        return L10n.t("vm.similar.defaultTitle", s.title)
     }
 
     /// Open the naming overlay. The heavy work waits for `confirmSimilarPlaylist`.
     func startSimilarPlaylist(seed: TrackSummary) {
-        guard auth.isAuthenticated else { showToast("Liste için YT Music'e giriş yap"); return }
-        guard lastfm.isConfigured else { showToast("Last.fm anahtarı ayarlı değil"); return }
+        guard auth.isAuthenticated else { showToast(L10n.t("vm.toast.signInForPlaylist")); return }
+        guard lastfm.isConfigured else { showToast(L10n.t("vm.toast.lastfmKeyMissing")); return }
         guard !ArtistName.primary(seed.artist).isEmpty, !seed.title.isEmpty else {
-            showToast("Bu parça için liste yapılamıyor"); return
+            showToast(L10n.t("vm.toast.similarNotPossible")); return
         }
         similarStage = .form
         similarSeed = seed
@@ -1035,7 +1037,7 @@ final class NativeShellViewModel: ObservableObject {
         Task {
             let candidates = await lastfm.recommendations(artist: artist, track: seed.title, target: 30)
             guard !candidates.isEmpty else {
-                similarSeed = nil; showToast("Benzer parça bulunamadı"); return
+                similarSeed = nil; showToast(L10n.t("vm.toast.noSimilarTracks")); return
             }
 
             similarStage = .matching(done: 0, total: candidates.count)
@@ -1050,7 +1052,7 @@ final class NativeShellViewModel: ObservableObject {
             var seen: Set<String> = [seed.id]
             for t in matched where !seen.contains(t.id) { seen.insert(t.id); chosen.append(t) }
             guard chosen.count > 1 else {
-                similarSeed = nil; showToast("Eşleşen parça bulunamadı"); return
+                similarSeed = nil; showToast(L10n.t("vm.toast.noMatchedTracks")); return
             }
             let ids = chosen.map(\.id)
 
@@ -1061,10 +1063,10 @@ final class NativeShellViewModel: ObservableObject {
                 let tail = Array(ids.dropFirst(90))
                 guard let playlistId = try await client.createPlaylist(
                     title: name,
-                    description: "\(seed.title) • \(artist) — Last.fm benzerleri",
+                    description: L10n.t("vm.similar.description", seed.title, artist),
                     privacy: privacy.rawValue,
                     videoIds: head)
-                else { similarSeed = nil; showToast("Liste oluşturulamadı"); return }
+                else { similarSeed = nil; showToast(L10n.t("vm.toast.playlistCreateFailed")); return }
 
                 if !tail.isEmpty {
                     _ = try? await client.addToPlaylist(playlistId: playlistId, videoIds: tail)
@@ -1084,7 +1086,7 @@ final class NativeShellViewModel: ObservableObject {
                 similarStage = .done(count: chosen.count)
                 Task { await loadPlaylists() }  // reconcile with the server later
             } catch {
-                similarSeed = nil; showToast("Liste oluşturulamadı")
+                similarSeed = nil; showToast(L10n.t("vm.toast.playlistCreateFailed"))
             }
         }
     }
@@ -1285,7 +1287,7 @@ final class NativeShellViewModel: ObservableObject {
         if isClipMode { exitClip(); return }
         if !isNowPlayingVisible {
             guard MediaController.shared.nowPlaying.hasTrack else {
-                showToast("Çalan şarkı yok"); return
+                showToast(L10n.t("vm.error.noTrackPlaying")); return
             }
             isNowPlayingVisible = true
             loadLyricsForCurrentTrack() // so lyrics are ready if the user opens them
@@ -1319,7 +1321,7 @@ final class NativeShellViewModel: ObservableObject {
         guard !clipActive else { return }
         let np = MediaController.shared.nowPlaying
         let entry = Self.clipEntry(hasTrack: np.hasTrack, hasVideo: np.hasVideo)
-        guard entry != .noTrack else { showToast("Çalan şarkı yok"); return }
+        guard entry != .noTrack else { showToast(L10n.t("vm.error.noTrackPlaying")); return }
         // Show a spinner for video tracks (buffering) or the crawl for
         // audio-only tracks, then start the WebView machinery underneath. The
         // probe promotes to video (clipReady) or falls to crawl (clipUnavailable).
@@ -1414,6 +1416,23 @@ final class NativeShellViewModel: ObservableObject {
 
     func reloadHome() { Task { await loadHome() } }
 
+    /// Drop everything YouTube localised for us and fetch it again. Shelf
+    /// titles, genre/mood names and chart contents all come back keyed off
+    /// InnerTube's `hl`/`gl`, so changing language or region leaves the cached
+    /// copies in the old language until they're refetched. Search results are
+    /// cached per query and are dropped for the same reason.
+    func reloadLocalizedContent() {
+        homeLoaded = false
+        exploreLoaded = false
+        genreSections = []
+        searchCache.removeAll()
+        switch mainSection {
+        case .home:    Task { await loadHome() }
+        case .explore: Task { await loadExplore() }
+        default:       break
+        }
+    }
+
     private func loadHome() async {
         guard !homeLoading else { return }
         homeLoading = true
@@ -1437,7 +1456,7 @@ final class NativeShellViewModel: ObservableObject {
         homeShelves = shelves
         genreSections = sections
         homeError = shelves.isEmpty && sections.isEmpty
-            ? "Ana sayfa yüklenemedi."
+            ? L10n.t("vm.error.homeFailed")
             : nil
         homeLoaded = true
     }
@@ -1496,7 +1515,7 @@ final class NativeShellViewModel: ObservableObject {
     private func loadHistory() async {
         guard !historyLoading else { return }
         guard auth.isAuthenticated else {
-            historyError = "Geçmişi görmek için YT Music'e giriş yap."
+            historyError = L10n.t("vm.error.historyNeedsSignIn")
             return
         }
         historyLoading = true
@@ -1505,11 +1524,11 @@ final class NativeShellViewModel: ObservableObject {
             let data = try await client.browse(browseId: "FEmusic_history")
             let sections = HistoryParser.parse(data: data)
             historySections = sections
-            historyError = sections.isEmpty ? "Geçmiş boş." : nil
+            historyError = sections.isEmpty ? L10n.t("vm.error.historyEmpty") : nil
             noteSuccess()
         } catch {
             noteFailure(error)
-            historyError = "Geçmiş yüklenemedi."
+            historyError = L10n.t("vm.error.historyFailed")
         }
     }
 
@@ -1544,7 +1563,7 @@ final class NativeShellViewModel: ObservableObject {
         exploreCharts = charts
         if genreSections.isEmpty { genreSections = genres }
         exploreError = (releases.isEmpty && charts.isEmpty && genreSections.isEmpty)
-            ? "Keşfet yüklenemedi."
+            ? L10n.t("vm.error.exploreFailed")
             : nil
         exploreLoaded = true
     }
@@ -1577,7 +1596,7 @@ final class NativeShellViewModel: ObservableObject {
         let key = cacheKey(query: query, tab: searchTab)
         if let cached = searchCache[key] {
             searchResults = cached
-            searchError = cached.isEmpty ? "Sonuç yok." : nil
+            searchError = cached.isEmpty ? L10n.t("vm.error.searchEmpty") : nil
             return
         }
         let tab = searchTab
@@ -1604,12 +1623,12 @@ final class NativeShellViewModel: ObservableObject {
             if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query,
                searchTab == tab {
                 searchResults = parsed
-                searchError = parsed.isEmpty ? "Sonuç yok." : nil
+                searchError = parsed.isEmpty ? L10n.t("vm.error.searchEmpty") : nil
             }
         } catch {
             guard !Task.isCancelled else { return }
             noteFailure(error)
-            searchError = "Arama başarısız"
+            searchError = L10n.t("vm.error.searchFailed")
         }
     }
 
@@ -1654,11 +1673,11 @@ final class NativeShellViewModel: ObservableObject {
         Task {
             do {
                 _ = try await client.like(videoId: videoId)
-                showToast("Beğenildi: \(title)")
+                showToast(L10n.t("vm.toast.liked", title))
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Beğenilemedi (HTTP \(code))")
+                showToast(L10n.t("vm.toast.likeFailedHTTP", code))
             } catch {
-                showToast("Beğenilemedi")
+                showToast(L10n.t("vm.toast.likeFailed"))
             }
         }
     }
@@ -1667,11 +1686,11 @@ final class NativeShellViewModel: ObservableObject {
         Task {
             do {
                 _ = try await client.dislike(videoId: videoId)
-                showToast("Beğenilmedi: \(title)")
+                showToast(L10n.t("vm.toast.disliked", title))
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("İşlem başarısız (HTTP \(code))")
+                showToast(L10n.t("vm.toast.actionFailedHTTP", code))
             } catch {
-                showToast("İşlem başarısız")
+                showToast(L10n.t("vm.toast.actionFailed"))
             }
         }
     }
@@ -1695,7 +1714,7 @@ final class NativeShellViewModel: ObservableObject {
         }
         guard auth.isAuthenticated else {
             MediaController.shared.clickLikeInPage(dislike: dislike)
-            showToast("Beğenmek için YT Music'e giriş yap")
+            showToast(L10n.t("vm.toast.signInToLike"))
             return
         }
 
@@ -1720,9 +1739,9 @@ final class NativeShellViewModel: ObservableObject {
                     _ = try await client.removeLike(videoId: videoId)
                 }
                 if dislike {
-                    showToast(disliked ? "Beğenilmedi olarak işaretlendi" : "İşaret kaldırıldı")
+                    showToast(L10n.t(disliked ? "vm.toast.dislikeMarked" : "vm.toast.dislikeCleared"))
                 } else {
-                    showToast(liked ? "Beğenilenlere eklendi" : "Beğeni kaldırıldı")
+                    showToast(L10n.t(liked ? "vm.toast.likeAdded" : "vm.toast.likeRemoved"))
                 }
             } catch {
                 // Don't revert the heart yet: the page click may still land.
@@ -1730,9 +1749,9 @@ final class NativeShellViewModel: ObservableObject {
                 // than "the button doesn't work".
                 MediaController.shared.clickLikeInPage(dislike: dislike)
                 if case InnerTubeClient.APIError.httpStatus(let code, _) = error {
-                    showToast("Beğeni API'si reddetti (HTTP \(code)) — sayfadan denendi")
+                    showToast(L10n.t("vm.toast.likeAPIRejected", code))
                 } else {
-                    showToast("Beğeni gönderilemedi — sayfadan denendi")
+                    showToast(L10n.t("vm.toast.likeSendFailed"))
                 }
                 // Give the click a moment to land, then stop pinning the heart
                 // so the page's real like-status decides what it shows.
@@ -1752,10 +1771,10 @@ final class NativeShellViewModel: ObservableObject {
                                 artist: artist, thumbnailURL: thumbnailURL)
         if playNext {
             ownQueue.insert(item, at: 0)
-            showToast("Sıradaki: \(title)")
+            showToast(L10n.t("vm.toast.playNext", title))
         } else {
             ownQueue.append(item)
-            showToast("Kuyruğa eklendi: \(title)")
+            showToast(L10n.t("vm.toast.addedToQueue", title))
         }
     }
 
@@ -1775,7 +1794,7 @@ final class NativeShellViewModel: ObservableObject {
         ownQueue.append(contentsOf: list.map {
             OwnQueueItem(videoId: $0.id, title: $0.title, artist: $0.artist, thumbnailURL: $0.thumbnailURL)
         })
-        showToast("\(list.count) şarkı kuyruğa eklendi")
+        showToast(L10n.t("vm.toast.tracksQueued", L10n.plural("vm.count.songs", list.count)))
     }
 
     /// Fetch a collection (playlist/album) and append its tracks to ownQueue,
@@ -1785,10 +1804,10 @@ final class NativeShellViewModel: ObservableObject {
             do {
                 let data = try await client.browse(browseId: id)
                 let list = TrackParser.parse(data: data)
-                guard !list.isEmpty else { showToast("Boş liste"); return }
+                guard !list.isEmpty else { showToast(L10n.t("vm.toast.emptyList")); return }
                 addTracksToQueue(list)
             } catch {
-                showToast("Kuyruğa eklenemedi")
+                showToast(L10n.t("vm.toast.queueAddFailed"))
             }
         }
     }
@@ -1857,7 +1876,7 @@ final class NativeShellViewModel: ObservableObject {
     /// Clear everything the user manually queued.
     func clearOwnQueue() {
         ownQueue.removeAll()
-        showToast("Kuyruk temizlendi")
+        showToast(L10n.t("vm.toast.queueCleared"))
     }
 
     // MARK: Create playlist
@@ -1869,9 +1888,9 @@ final class NativeShellViewModel: ObservableObject {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .publicListed: return "Herkese açık"
-            case .unlisted:     return "Liste dışı (bağlantısı olan)"
-            case .privateListed:return "Özel"
+            case .publicListed: return L10n.t("vm.privacy.public")
+            case .unlisted:     return L10n.t("vm.privacy.unlisted")
+            case .privateListed:return L10n.t("vm.privacy.private")
             }
         }
     }
@@ -1920,12 +1939,12 @@ final class NativeShellViewModel: ObservableObject {
         Task {
             do {
                 _ = try await client.renamePlaylist(playlistId: barePlaylistId(p.id), name: name)
-                showToast("Yeniden adlandırıldı: \(name)")
+                showToast(L10n.t("vm.toast.renamed", name))
                 await loadPlaylists()
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Adlandırılamadı (HTTP \(code))")
+                showToast(L10n.t("vm.toast.renameFailedHTTP", code))
             } catch {
-                showToast("Adlandırılamadı")
+                showToast(L10n.t("vm.toast.renameFailed"))
             }
         }
     }
@@ -1936,13 +1955,13 @@ final class NativeShellViewModel: ObservableObject {
         Task {
             do {
                 _ = try await client.deletePlaylist(playlistId: barePlaylistId(p.id))
-                showToast("Silindi: \(p.title)")
+                showToast(L10n.t("vm.toast.deleted", p.title))
                 if mainSection == .playlist(p) { goHome() }
                 await loadPlaylists()
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Silinemedi (HTTP \(code))")
+                showToast(L10n.t("vm.toast.deleteFailedHTTP", code))
             } catch {
-                showToast("Silinemedi")
+                showToast(L10n.t("vm.toast.deleteFailed"))
             }
         }
     }
@@ -1953,20 +1972,22 @@ final class NativeShellViewModel: ObservableObject {
         let videoIds = createPlaylistPendingVideoIds
         isCreatePlaylistVisible = false
         createPlaylistPendingVideoIds = []
-        guard !name.isEmpty else { showToast("Liste adı gerekli"); return }
+        guard !name.isEmpty else { showToast(L10n.t("vm.toast.playlistNameRequired")); return }
         Task {
             do {
                 _ = try await client.createPlaylist(title: name,
                                                     description: desc,
                                                     privacy: privacy.rawValue,
                                                     videoIds: videoIds.isEmpty ? nil : videoIds)
-                showToast(videoIds.isEmpty ? "“\(name)” oluşturuldu"
-                                           : "“\(name)” oluşturuldu, \(videoIds.count) şarkı eklendi")
+                showToast(videoIds.isEmpty
+                    ? L10n.t("vm.toast.playlistCreated", name)
+                    : L10n.t("vm.toast.playlistCreatedWithTracks", name,
+                             L10n.plural("vm.count.songs", videoIds.count)))
                 await loadPlaylists() // refresh sidebar so the new list shows
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Liste oluşturulamadı (HTTP \(code))")
+                showToast(L10n.t("vm.toast.playlistCreateFailedHTTP", code))
             } catch {
-                showToast("Liste oluşturulamadı")
+                showToast(L10n.t("vm.toast.playlistCreateFailed"))
             }
         }
     }
@@ -1991,7 +2012,7 @@ final class NativeShellViewModel: ObservableObject {
                                                     setVideoId: setVideoId,
                                                     successorSetVideoId: successor)
             } catch {
-                showToast("Sıralama kaydedilemedi")
+                showToast(L10n.t("vm.toast.reorderSaveFailed"))
                 await loadTracks(for: p) // resync from server
             }
         }
@@ -2017,17 +2038,19 @@ final class NativeShellViewModel: ObservableObject {
             guard let sv = t.setVideoId else { return nil }
             return (t.id, sv)
         }
-        guard !items.isEmpty else { showToast("Bu parçalar listeden çıkarılamıyor"); return }
+        guard !items.isEmpty else { showToast(L10n.t("vm.toast.tracksNotRemovable")); return }
         Task {
             do {
                 _ = try await client.removeFromPlaylist(playlistId: barePlaylistId(p.id), items: items)
-                showToast(items.count == 1 ? "Listeden çıkarıldı"
-                                           : "\(items.count) şarkı listeden çıkarıldı")
+                showToast(items.count == 1
+                    ? L10n.t("vm.toast.removedFromPlaylist")
+                    : L10n.t("vm.toast.tracksRemovedFromPlaylist",
+                             L10n.plural("vm.count.songs", items.count)))
                 await loadTracks(for: p) // refresh the list
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Çıkarılamadı (HTTP \(code))")
+                showToast(L10n.t("vm.toast.removeFailedHTTP", code))
             } catch {
-                showToast("Çıkarılamadı")
+                showToast(L10n.t("vm.toast.removeFailed"))
             }
         }
     }
@@ -2041,16 +2064,19 @@ final class NativeShellViewModel: ObservableObject {
                 let bare = barePlaylistId(playlistId)
                 if bare == "LM" {
                     for v in videoIds { _ = try await client.like(videoId: v) }
-                    showToast("\(videoIds.count) şarkı Beğenilenlere eklendi")
+                    showToast(L10n.t("vm.toast.tracksLiked", L10n.plural("vm.count.songs", videoIds.count)))
                     return
                 }
-                guard bare.hasPrefix("PL") else { showToast("\(playlistTitle) düzenlenemiyor"); return }
+                guard bare.hasPrefix("PL") else {
+                    showToast(L10n.t("vm.toast.playlistNotEditable", playlistTitle)); return
+                }
                 _ = try await client.addToPlaylist(playlistId: bare, videoIds: videoIds)
-                showToast("\(videoIds.count) şarkı “\(playlistTitle)”e eklendi")
+                showToast(L10n.t("vm.toast.tracksAddedToPlaylist",
+                                 L10n.plural("vm.count.songs", videoIds.count), playlistTitle))
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Eklenemedi (HTTP \(code))")
+                showToast(L10n.t("vm.toast.addFailedHTTP", code))
             } catch {
-                showToast("Eklenemedi")
+                showToast(L10n.t("vm.toast.addFailed"))
             }
         }
     }
@@ -2067,20 +2093,20 @@ final class NativeShellViewModel: ObservableObject {
                 // "not editable" message.
                 if bareId == "LM" {
                     _ = try await client.like(videoId: videoId)
-                    showToast("“\(trackTitle)” Beğenilen Müzikler'e eklendi")
+                    showToast(L10n.t("vm.toast.trackLikedMusic", trackTitle))
                     return
                 }
 
                 guard bareId.hasPrefix("PL") else {
-                    showToast("\(playlistTitle) düzenlenemez")
+                    showToast(L10n.t("vm.toast.playlistNotEditable", playlistTitle))
                     return
                 }
                 _ = try await client.addToPlaylist(playlistId: bareId, videoId: videoId)
-                showToast("“\(trackTitle)” → \(playlistTitle)")
+                showToast(L10n.t("vm.toast.trackAddedToPlaylist", trackTitle, playlistTitle))
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Kaydedilemedi (HTTP \(code))")
+                showToast(L10n.t("vm.toast.saveFailedHTTP", code))
             } catch {
-                showToast("Kaydedilemedi")
+                showToast(L10n.t("vm.toast.saveFailed"))
             }
         }
     }
@@ -2092,7 +2118,7 @@ final class NativeShellViewModel: ObservableObject {
     func loadLyricsForCurrentTrack() {
         let np = MediaController.shared.nowPlaying
         guard !np.videoId.isEmpty else {
-            lyricsError = "Çalan şarkı yok"
+            lyricsError = L10n.t("vm.error.noTrackPlaying")
             lyrics = nil
             return
         }
@@ -2109,7 +2135,7 @@ final class NativeShellViewModel: ObservableObject {
         do {
             let nextData = try await client.next(videoId: videoId)
             guard let browseId = WatchNextParser.extractLyricsBrowseId(data: nextData) else {
-                lyricsError = "Bu şarkı için sözler yok"
+                lyricsError = L10n.t("vm.lyrics.unavailable")
                 return
             }
             // Try timestamped (karaoke) lyrics first via the ANDROID_MUSIC
@@ -2128,10 +2154,10 @@ final class NativeShellViewModel: ObservableObject {
             if let parsed = LyricsParser.parse(data: lyricsData) {
                 lyrics = parsed
             } else {
-                lyricsError = "Sözler bulunamadı"
+                lyricsError = L10n.t("vm.lyrics.notFound")
             }
         } catch {
-            lyricsError = "Sözler yüklenemedi"
+            lyricsError = L10n.t("vm.lyrics.failed")
             // Transient failure (network) — clear the dedupe key so
             // reopening the panel retries. "No lyrics"/"not found" above
             // are deterministic and intentionally stay cached.
@@ -2151,7 +2177,7 @@ final class NativeShellViewModel: ObservableObject {
         let urlStr = "https://music.youtube.com/watch?v=\(videoId)"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(urlStr, forType: .string)
-        showToast("Bağlantı kopyalandı")
+        showToast(L10n.t("vm.toast.linkCopied"))
     }
 
     /// Navigate to an album (a playlist-like browse target, MPRE…/OLAK…).
@@ -2178,12 +2204,12 @@ final class NativeShellViewModel: ObservableObject {
             do {
                 let bareId = p.id.hasPrefix("VL") ? String(p.id.dropFirst(2)) : p.id
                 _ = try await client.savePlaylist(playlistId: bareId)
-                showToast("“\(p.title)” kitaplığa kaydedildi")
+                showToast(L10n.t("vm.toast.playlistSaved", p.title))
                 await loadPlaylists()
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Kaydedilemedi (HTTP \(code))")
+                showToast(L10n.t("vm.toast.saveFailedHTTP", code))
             } catch {
-                showToast("Kaydedilemedi")
+                showToast(L10n.t("vm.toast.saveFailed"))
             }
         }
     }
@@ -2195,12 +2221,12 @@ final class NativeShellViewModel: ObservableObject {
             do {
                 let bareId = p.id.hasPrefix("VL") ? String(p.id.dropFirst(2)) : p.id
                 _ = try await client.removePlaylist(playlistId: bareId)
-                showToast("“\(p.title)” kitaplıktan çıkarıldı")
+                showToast(L10n.t("vm.toast.playlistRemoved", p.title))
                 await loadPlaylists()
             } catch InnerTubeClient.APIError.httpStatus(let code, _) {
-                showToast("Çıkarılamadı (HTTP \(code))")
+                showToast(L10n.t("vm.toast.removeFailedHTTP", code))
             } catch {
-                showToast("Çıkarılamadı")
+                showToast(L10n.t("vm.toast.removeFailed"))
             }
         }
     }
@@ -2209,7 +2235,7 @@ final class NativeShellViewModel: ObservableObject {
         let url = "https://music.youtube.com/playlist?list=\(p.playlistURLId)"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(url, forType: .string)
-        showToast("Bağlantı kopyalandı")
+        showToast(L10n.t("vm.toast.linkCopied"))
     }
 }
 
@@ -2485,15 +2511,30 @@ enum SearchResultsParser {
     }
 
     /// Kind from subtitle first-run; fallback to navigationEndpoint shape.
+    ///
+    /// The labels are whatever YT rendered them as, which follows InnerTube's
+    /// `hl` — i.e. the user's chosen app language. Every shipped language needs
+    /// its labels here, otherwise this falls through to the id-shape fallback
+    /// below and the single/EP/video → song distinction is lost.
+    /// `en_US_POSIX` lowercasing keeps a Turkish "I" from becoming "ı" and
+    /// missing the English cases.
     private static func kind(subtitleFirst: String?,
                              hasVideoId: Bool,
                              browseIdPrefix: String?) -> NativeShellViewModel.SearchKind? {
-        let label = subtitleFirst?.lowercased() ?? ""
+        let label = subtitleFirst?.lowercased(with: Locale(identifier: "en_US_POSIX")) ?? ""
         switch label {
-        case "song", "video", "single", "ep": return .song
-        case "album": return .album
-        case "playlist", "community playlist", "featured playlist": return .playlist
-        case "artist", "profile": return .artist
+        case "song", "video", "single", "ep",
+             "şarkı", "tekli":
+            return .song
+        case "album",
+             "albüm":
+            return .album
+        case "playlist", "community playlist", "featured playlist",
+             "çalma listesi", "topluluk çalma listesi", "öne çıkan çalma listesi":
+            return .playlist
+        case "artist", "profile",
+             "sanatçı", "profil":
+            return .artist
         default: break
         }
         // Subtitle didn't tell us — infer from id shape.

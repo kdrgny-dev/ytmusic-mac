@@ -41,54 +41,71 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             .store(in: &cancellables)
     }
 
+    /// Throw the menu away and build a new one in the current language.
+    /// NSMenuItem titles are baked in at build time, so translating them in
+    /// place isn't possible.
+    func rebuildMenu() {
+        guard let statusItem else { return }
+        let menu = buildMenu()
+        menu.delegate = self
+        statusItem.menu = menu
+        // The Combine sinks that normally seed these fired once at install
+        // and won't fire again just because the language changed.
+        refresh(with: MediaController.shared.nowPlaying)
+        refreshSleepLabel()
+    }
+
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
 
-        let track = NSMenuItem(title: "Çalmıyor", action: nil, keyEquivalent: "")
+        let track = NSMenuItem(title: L10n.t("status.notPlaying"), action: nil, keyEquivalent: "")
         track.isEnabled = false
         menu.addItem(track)
         trackItem = track
 
         menu.addItem(.separator())
 
-        let pp = NSMenuItem(title: "Çal", action: #selector(StatusActions.playPause), keyEquivalent: "")
+        let pp = NSMenuItem(title: L10n.t("transport.play"), action: #selector(StatusActions.playPause), keyEquivalent: "")
         pp.target = StatusActions.shared
         menu.addItem(pp)
         playPauseItem = pp
 
-        let next = NSMenuItem(title: "Sonraki", action: #selector(StatusActions.next), keyEquivalent: "")
+        let next = NSMenuItem(title: L10n.t("transport.next"), action: #selector(StatusActions.next), keyEquivalent: "")
         next.target = StatusActions.shared
         menu.addItem(next)
 
-        let prev = NSMenuItem(title: "Önceki", action: #selector(StatusActions.prev), keyEquivalent: "")
+        let prev = NSMenuItem(title: L10n.t("transport.prev"), action: #selector(StatusActions.prev), keyEquivalent: "")
         prev.target = StatusActions.shared
         menu.addItem(prev)
 
         menu.addItem(.separator())
 
-        let main = NSMenuItem(title: "Ana Pencereyi Göster", action: #selector(StatusActions.showMain), keyEquivalent: "")
+        let main = NSMenuItem(title: L10n.t("status.showMainWindow"), action: #selector(StatusActions.showMain), keyEquivalent: "")
         main.target = StatusActions.shared
         menu.addItem(main)
 
-        let mini = NSMenuItem(title: "Mini Oynatıcıyı Göster", action: #selector(StatusActions.showMini), keyEquivalent: "")
+        let mini = NSMenuItem(title: L10n.t("status.showMiniPlayer"), action: #selector(StatusActions.showMini), keyEquivalent: "")
         mini.target = StatusActions.shared
         menu.addItem(mini)
 
         menu.addItem(.separator())
 
-        let notify = NSMenuItem(title: "Parça Değişince Bildir", action: #selector(StatusActions.toggleNotify), keyEquivalent: "")
+        let notify = NSMenuItem(title: L10n.t("status.notifyOnTrackChange"), action: #selector(StatusActions.toggleNotify), keyEquivalent: "")
         notify.target = StatusActions.shared
+        // Seeded here rather than relying on the Combine sink, which only
+        // fires on install — a rebuilt menu would otherwise lose the checkmark.
+        notify.state = Preferences.shared.notifyOnTrackChange ? .on : .off
         menu.addItem(notify)
         notifyToggleItem = notify
 
-        let sleep = NSMenuItem(title: "Uyku Zamanlayıcı", action: nil, keyEquivalent: "")
+        let sleep = NSMenuItem(title: L10n.t("sleep.title"), action: nil, keyEquivalent: "")
         sleep.submenu = buildSleepSubmenu()
         menu.addItem(sleep)
         sleepItem = sleep
 
         menu.addItem(.separator())
 
-        let memory = NSMenuItem(title: "Bellek: …", action: nil, keyEquivalent: "")
+        let memory = NSMenuItem(title: L10n.t("status.memory", "…"), action: nil, keyEquivalent: "")
         memory.isEnabled = false
         menu.addItem(memory)
         memoryItem = memory
@@ -97,7 +114,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(AppDelegate.settingsMenuItem())
 
-        let quit = NSMenuItem(title: "YouTube Music'ten Çık", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quit = NSMenuItem(title: L10n.t("menu.app.quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
 
         return menu
@@ -108,17 +125,17 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     /// Refresh the memory line just before the menu draws. Avoids burning
     /// a timer in the background just to keep that one line live.
     func menuWillOpen(_ menu: NSMenu) {
-        memoryItem?.title = "Bellek: " + MemoryDiagnostic.summary()
+        memoryItem?.title = L10n.t("status.memory", MemoryDiagnostic.summary())
     }
 
     private func buildSleepSubmenu() -> NSMenu {
         let m = NSMenu()
         let options: [(String, SleepTimer.Mode)] = [
-            ("5 dakika",  .duration(5 * 60)),
-            ("15 dakika", .duration(15 * 60)),
-            ("30 dakika", .duration(30 * 60)),
-            ("1 saat",     .duration(60 * 60)),
-            ("Parça bitince", .endOfTrack),
+            (L10n.plural("sleep.minutes", 5),  .duration(5 * 60)),
+            (L10n.plural("sleep.minutes", 15), .duration(15 * 60)),
+            (L10n.plural("sleep.minutes", 30), .duration(30 * 60)),
+            (L10n.plural("sleep.hours", 1),    .duration(60 * 60)),
+            (L10n.t("sleep.endOfTrack"),       .endOfTrack),
         ]
         for (label, mode) in options {
             let it = NSMenuItem(title: label, action: #selector(StatusActions.startSleep(_:)), keyEquivalent: "")
@@ -127,7 +144,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             m.addItem(it)
         }
         m.addItem(.separator())
-        let cancel = NSMenuItem(title: "İptal", action: #selector(StatusActions.cancelSleep), keyEquivalent: "")
+        let cancel = NSMenuItem(title: L10n.t("common.cancel"), action: #selector(StatusActions.cancelSleep), keyEquivalent: "")
         cancel.target = StatusActions.shared
         m.addItem(cancel)
         return m
@@ -137,11 +154,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         guard let sleepItem = sleepItem else { return }
         if let r = SleepTimer.shared.remaining, SleepTimer.shared.isActive {
             let mm = Int(r) / 60, ss = Int(r) % 60
-            sleepItem.title = "Sleep Timer — \(mm):" + String(format: "%02d", ss)
+            sleepItem.title = L10n.t("sleep.countdown", "\(mm):" + String(format: "%02d", ss))
         } else if case .endOfTrack? = SleepTimer.shared.mode {
-            sleepItem.title = "Sleep Timer — end of track"
+            sleepItem.title = L10n.t("sleep.activeEndOfTrack")
         } else {
-            sleepItem.title = "Sleep Timer"
+            sleepItem.title = L10n.t("sleep.title")
         }
     }
 
@@ -155,11 +172,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             button.title = " " + Self.compact("\(np.title) — \(np.artist)", max: 45)
             button.toolTip = "\(np.title) — \(np.artist)"
         } else {
-            trackItem?.title = "Not Playing"
+            trackItem?.title = L10n.t("status.notPlaying")
             button.title = ""
             button.toolTip = "YouTube Music"
         }
-        playPauseItem?.title = np.isPlaying ? "Duraklat" : "Çal"
+        playPauseItem?.title = L10n.t(np.isPlaying ? "transport.pause" : "transport.play")
     }
 
     /// Trims runs of whitespace then truncates with an ellipsis. We're

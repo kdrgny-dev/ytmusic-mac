@@ -42,14 +42,14 @@ struct StatisticsView: View {
     private var header: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("KİTAPLIK")
+                Text(L10n.t("stats.eyebrow"))
                     .font(.system(size: 11, weight: .semibold))
                     .tracking(0.8)
                     .foregroundColor(.primary.opacity(0.55))
-                Text("İstatistikler")
+                Text(L10n.t("stats.title"))
                     .font(.system(size: 28, weight: .bold))
                     .foregroundColor(.primary)
-                Text("Bu Mac'te dinlediklerinden üretildi; hiçbir yere gönderilmez.")
+                Text(L10n.t("stats.subtitle"))
                     .font(.system(size: 12))
                     .foregroundColor(.primary.opacity(0.5))
             }
@@ -85,13 +85,13 @@ struct StatisticsView: View {
         HStack(spacing: 12) {
             SummaryTile(icon: "clock.fill",
                         value: StatsFormat.duration(stats.totalMs),
-                        label: "dinleme süresi")
+                        label: L10n.t("stats.summary.listeningTime"))
             SummaryTile(icon: "play.circle.fill",
                         value: "\(stats.playCount)",
-                        label: "parça çaldın")
+                        label: L10n.plural("stats.summary.tracksPlayed", stats.playCount))
             SummaryTile(icon: "person.2.fill",
                         value: "\(stats.distinctArtists)",
-                        label: "farklı sanatçı")
+                        label: L10n.plural("stats.summary.distinctArtists", stats.distinctArtists))
         }
     }
 
@@ -106,15 +106,15 @@ struct StatisticsView: View {
         LazyVGrid(columns: [GridItem(.flexible(minimum: 300), spacing: 20, alignment: .top),
                             GridItem(.flexible(minimum: 300), spacing: 20, alignment: .top)],
                   alignment: .leading, spacing: 20) {
-            RankCard(title: "En çok dinlediğin sanatçılar",
-                     emptyText: "Henüz sanatçı yok",
+            RankCard(title: L10n.t("stats.topArtists.title"),
+                     emptyText: L10n.t("stats.topArtists.empty"),
                      accent: prefs.theme.accentColor,
                      rows: stats.topArtists.map {
                          RankRow(id: $0.id, primary: $0.artist, secondary: nil,
                                  plays: $0.plays, artworkURL: $0.artworkURL, circular: true)
                      })
-            RankCard(title: "En çok dinlediğin şarkılar",
-                     emptyText: "Henüz şarkı yok",
+            RankCard(title: L10n.t("stats.topTracks.title"),
+                     emptyText: L10n.t("stats.topTracks.empty"),
                      accent: prefs.theme.accentColor,
                      rows: stats.topTracks.map {
                          RankRow(id: $0.id, primary: $0.title, secondary: $0.artist,
@@ -127,14 +127,14 @@ struct StatisticsView: View {
 
     private var emptyState: some View {
         placeholder(icon: "chart.bar.xaxis",
-                    title: "Henüz yeterli veri yok",
-                    caption: "Bir parça, 30 saniye ya da süresinin yarısı çaldığında sayılır. Dinlemeye devam et — burası kendiliğinden dolacak.")
+                    title: L10n.t("stats.empty.title"),
+                    caption: L10n.t("stats.empty.caption"))
     }
 
     private var disabledState: some View {
         placeholder(icon: "eye.slash",
-                    title: "Dinleme geçmişi kapalı",
-                    caption: "İstatistikleri görmek için Ayarlar → Dinleme geçmişi bölümünden kaydı aç.")
+                    title: L10n.t("stats.disabled.title"),
+                    caption: L10n.t("stats.disabled.caption"))
     }
 
     private func placeholder(icon: String, title: String, caption: String) -> some View {
@@ -196,7 +196,7 @@ private struct ActivityChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Günlük dinleme")
+            Text(L10n.t("stats.dailyActivity.title"))
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.primary)
 
@@ -365,29 +365,39 @@ private struct RankRowView: View {
 // MARK: - Formatting
 
 enum StatsFormat {
-    /// "3 sa 12 dk" / "47 dk" / "2 dk". Seconds are noise at this scale.
+    /// "3h 12m" / "47m". Seconds are noise at this scale.
     static func duration(_ ms: Int64) -> String {
         let minutes = Int(ms / 60_000)
         let hours = minutes / 60
         let mins = minutes % 60
-        if hours > 0 { return mins > 0 ? "\(hours) sa \(mins) dk" : "\(hours) sa" }
-        return "\(mins) dk"
+        if hours > 0 {
+            return mins > 0 ? L10n.t("stats.duration.hoursMinutes", hours, mins)
+                            : L10n.t("stats.duration.hours", hours)
+        }
+        return L10n.t("stats.duration.minutes", mins)
     }
 
-    private static let dayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "tr_TR")
-        f.dateFormat = "d MMM"
-        return f
-    }()
+    /// Rebuilt whenever the language changes — a `static let` formatter would
+    /// hold the launch language forever. Cached because these are called once
+    /// per chart bar.
+    private static var formatterCache: (language: ResolvedLanguage, day: DateFormatter, fullDay: DateFormatter)?
 
-    private static let fullDayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "tr_TR")
-        f.dateFormat = "d MMMM EEEE"
-        return f
-    }()
+    private static func formatters() -> (day: DateFormatter, fullDay: DateFormatter) {
+        let language = L10n.language
+        if let c = formatterCache, c.language == language { return (c.day, c.fullDay) }
+        // Templates, not literal formats: field ORDER is locale-specific, so a
+        // hardcoded "d MMM" would render "16 Jul" to an English reader who
+        // expects "Jul 16".
+        let day = DateFormatter()
+        day.locale = L10n.locale
+        day.setLocalizedDateFormatFromTemplate("dMMM")
+        let fullDay = DateFormatter()
+        fullDay.locale = L10n.locale
+        fullDay.setLocalizedDateFormatFromTemplate("dMMMMEEEE")
+        formatterCache = (language, day, fullDay)
+        return (day, fullDay)
+    }
 
-    static func dayLabel(_ date: Date) -> String { dayFormatter.string(from: date) }
-    static func fullDayLabel(_ date: Date) -> String { fullDayFormatter.string(from: date) }
+    static func dayLabel(_ date: Date) -> String { formatters().day.string(from: date) }
+    static func fullDayLabel(_ date: Date) -> String { formatters().fullDay.string(from: date) }
 }

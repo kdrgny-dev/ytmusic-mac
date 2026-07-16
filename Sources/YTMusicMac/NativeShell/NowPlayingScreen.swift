@@ -70,7 +70,7 @@ struct NowPlayingScreen: View {
         VStack(spacing: 28) {
             artwork
             VStack(spacing: 6) {
-                Text(np.hasTrack ? np.title : "Çalan şarkı yok")
+                Text(np.hasTrack ? np.title : L10n.t("nowplaying.noTrack"))
                     .font(.system(size: 26, weight: .bold))
                     .foregroundColor(.white)
                     .lineLimit(2)
@@ -95,13 +95,14 @@ struct NowPlayingScreen: View {
         }
     }
 
-    /// Close / Klip / Sözler as labeled pills, placed inside the player column
+    /// Close / Video / Lyrics as labeled pills, placed inside the player column
     /// (which reliably renders) rather than a top bar.
     private var actionRow: some View {
         HStack(spacing: 12) {
-            pill("chevron.down", "Kapat", filled: true) { vm.isNowPlayingVisible = false }
-            pill("film", "Klip") { vm.enterClip() }
-            pill("quote.bubble", showLyrics ? "Sözleri gizle" : "Sözler", active: showLyrics) {
+            pill("chevron.down", L10n.t("common.close"), filled: true) { vm.isNowPlayingVisible = false }
+            pill("film", L10n.t("nowplaying.clip")) { vm.enterClip() }
+            pill("quote.bubble", L10n.t(showLyrics ? "nowplaying.hideLyrics" : "nowplaying.lyrics"),
+                 active: showLyrics) {
                 showLyrics.toggle()
             }
         }
@@ -254,7 +255,7 @@ struct NowPlayingScreen: View {
 
     private var lyricsColumn: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Sözler")
+            Text(L10n.t("nowplaying.lyrics"))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(.white.opacity(0.6))
             if vm.lyricsLoading {
@@ -265,7 +266,7 @@ struct NowPlayingScreen: View {
                 LyricsCrawlView(lyrics: lyrics, textColor: .white.opacity(0.85))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Text("Sözler yükleniyor…").font(.system(size: 13)).foregroundColor(.white.opacity(0.5))
+                Text(L10n.t("nowplaying.lyricsLoading")).font(.system(size: 13)).foregroundColor(.white.opacity(0.5))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: 420, alignment: .topLeading)

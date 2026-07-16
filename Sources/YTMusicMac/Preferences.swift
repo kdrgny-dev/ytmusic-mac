@@ -72,6 +72,27 @@ final class Preferences: ObservableObject {
         didSet { defaults.set(categoryLayout.rawValue, forKey: Keys.categoryLayout) }
     }
 
+    /// Interface language. Also becomes InnerTube's `hl`, so YT's own shelf
+    /// and genre titles come back in the same language as the chrome.
+    @Published var language: AppLanguage {
+        didSet {
+            guard language != oldValue else { return }
+            defaults.set(language.rawValue, forKey: Keys.language)
+            Task { @MainActor in LanguageBridge.apply() }
+        }
+    }
+
+    /// InnerTube's `gl` — which country's charts and new releases YT serves.
+    /// Separate from `language` on purpose: an English interface doesn't
+    /// imply US charts.
+    @Published var region: AppRegion {
+        didSet {
+            guard region != oldValue else { return }
+            defaults.set(region.rawValue, forKey: Keys.region)
+            Task { @MainActor in NativeShellViewModel.shared.reloadLocalizedContent() }
+        }
+    }
+
     /// Record what plays into a local SQLite file so the app can show the
     /// listening stats YouTube Music itself never surfaces. Nothing leaves
     /// the machine. Turning it off must also drop the listen in progress,
@@ -84,6 +105,8 @@ final class Preferences: ObservableObject {
     }
 
     private init() {
+        self.language = AppLanguage(rawValue: defaults.string(forKey: Keys.language) ?? "") ?? .system
+        self.region = AppRegion(rawValue: defaults.string(forKey: Keys.region) ?? "") ?? .system
         self.categoryLayout = CategoryLayout(rawValue: defaults.string(forKey: Keys.categoryLayout) ?? "")
             ?? .largeGrid
         self.notifyOnTrackChange = defaults.bool(forKey: Keys.notify)
@@ -99,7 +122,10 @@ final class Preferences: ObservableObject {
         self.theme = Theme(rawValue: raw) ?? .default
     }
 
-    private enum Keys {
+    fileprivate typealias Keys = PrefKeys
+}
+
+enum PrefKeys {
         static let notify = "pref.notifyOnTrackChange"
         static let miniOnTop = "pref.miniPlayerAlwaysOnTop"
         static let sidebarCollapsed = "pref.sidebarCollapsed"
@@ -111,7 +137,8 @@ final class Preferences: ObservableObject {
         static let nativeUIMode = "pref.nativeUIMode"
         static let categoryLayout = "pref.categoryLayout"
         static let historyEnabled = "pref.historyEnabled"
-    }
+        static let language = "pref.language"
+        static let region = "pref.region"
 }
 
 enum CategoryLayout: String, CaseIterable, Identifiable {
@@ -131,9 +158,9 @@ enum CategoryLayout: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .largeGrid: return "Büyük ızgara"
-        case .smallGrid: return "Küçük ızgara"
-        case .list:      return "Liste"
+        case .largeGrid: return L10n.t("category.layout.largeGrid")
+        case .smallGrid: return L10n.t("category.layout.smallGrid")
+        case .list:      return L10n.t("category.layout.list")
         }
     }
 

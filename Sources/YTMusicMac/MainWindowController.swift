@@ -13,6 +13,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private let frameAutosaveName = "YTMusicMacMainWindow"
     private var nativeOverlay: NSHostingView<AnyView>?
     private var prefsCancellable: AnyCancellable?
+    /// Tracked so a shell rebuild can restore the z-order instead of dropping
+    /// the SwiftUI overlay back on top of a playing music video.
+    private var clipMode = false
 
     func show() {
         if window == nil { build() }
@@ -164,10 +167,24 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Rebuild the SwiftUI shell from scratch. Needed when the language
+    /// changes: the shell's views resolve strings at body-eval time but
+    /// observe `NativeShellViewModel`, not `Preferences`, so a language flip
+    /// alone redraws nothing. Safe to tear down because every piece of shell
+    /// state — open section, queue, panels, history stacks — lives on the
+    /// view model singleton, not in the view tree.
+    func rebuildNativeShell() {
+        guard nativeOverlay != nil else { return }
+        applyNativeMode(false)
+        applyNativeMode(true)
+        if clipMode { setClipMode(true) }
+    }
+
     /// Clip mode: bring the WebView (now showing the full-window music video)
     /// ABOVE the SwiftUI shell, or send it back behind. Purely a z-order swap
     /// of the two existing sibling subviews — fully reversible.
     func setClipMode(_ on: Bool) {
+        clipMode = on
         guard let container = window?.contentView,
               let webView = WebViewHolder.shared.webView,
               let host = nativeOverlay else { return }

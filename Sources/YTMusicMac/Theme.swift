@@ -27,9 +27,11 @@ enum Theme: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Theme names are brand/proper nouns and stay untranslated — only the
+    /// stock theme's "Default" label is a real word.
     var displayName: String {
         switch self {
-        case .default:           return "Default (YT Music)"
+        case .default:           return L10n.t("theme.default")
         case .oledBlack:         return "OLED Black"
         case .midnight:          return "Midnight Blue"
         case .forest:            return "Forest"
@@ -88,8 +90,10 @@ enum Theme: String, CaseIterable, Identifiable {
     /// variants — empty for the originals so their names stay clean.
     var variantSuffix: String {
         switch self {
-        case .caffeineLight, .spotifyLight, .modernMinimalLight, .marvelLight: return " (Light)"
-        case .caffeineDark, .spotifyDark, .modernMinimalDark, .marvelDark:     return " (Dark)"
+        case .caffeineLight, .spotifyLight, .modernMinimalLight, .marvelLight:
+            return " (" + L10n.t("theme.variant.light") + ")"
+        case .caffeineDark, .spotifyDark, .modernMinimalDark, .marvelDark:
+            return " (" + L10n.t("theme.variant.dark") + ")"
         default: return ""
         }
     }

@@ -5,51 +5,47 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
-            generalTab.tabItem { Label("Genel", systemImage: "gear") }
-            interfaceTab.tabItem { Label("Arayüz", systemImage: "rectangle.3.group") }
+            generalTab.tabItem { Label(L10n.t("settings.tab.general"), systemImage: "gear") }
+            interfaceTab.tabItem { Label(L10n.t("settings.tab.interface"), systemImage: "rectangle.3.group") }
         }
-        .frame(width: 520, height: 440)
+        .frame(width: 520, height: 480)
     }
 
     private var generalTab: some View {
         Form {
             Section {
-                Toggle("Parça değişince bildir", isOn: $prefs.notifyOnTrackChange)
-                Toggle("Mini oynatıcı her zaman üstte", isOn: $prefs.miniPlayerAlwaysOnTop)
+                Toggle(L10n.t("settings.notifyOnTrackChange"), isOn: $prefs.notifyOnTrackChange)
+                Toggle(L10n.t("settings.miniAlwaysOnTop"), isOn: $prefs.miniPlayerAlwaysOnTop)
             }
-            Section("Oynatma") {
-                Toggle("Her zaman karıştır (YT Music kapattığında yeniden açar)",
-                       isOn: $prefs.alwaysShuffle)
-                Toggle("Çapraz geçiş (biten şarkıyı kıs, sonrakini aç)",
-                       isOn: $prefs.crossfadeEnabled)
+            Section(L10n.t("settings.section.playback")) {
+                Toggle(L10n.t("settings.alwaysShuffle"), isOn: $prefs.alwaysShuffle)
+                Toggle(L10n.t("settings.crossfade"), isOn: $prefs.crossfadeEnabled)
                 if prefs.crossfadeEnabled {
                     HStack {
-                        Text("Fade süresi")
+                        Text(L10n.t("settings.fadeDuration"))
                         Slider(value: $prefs.crossfadeDuration, in: 1...12, step: 1)
-                        Text("\(Int(prefs.crossfadeDuration)) sn")
+                        Text(L10n.t("settings.seconds", Int(prefs.crossfadeDuration)))
                             .monospacedDigit()
                             .foregroundColor(.secondary)
                             .frame(width: 40, alignment: .trailing)
                     }
-                    Text("Gerçek Spotify usulü üst üste binme YT'nin tek ses motorunda mümkün değil; bunun yerine biten şarkının sonu kısılır, yeni şarkının başı açılır.")
+                    Text(L10n.t("settings.crossfade.caption"))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
-            Section("Performans") {
-                Toggle("30 dk duraklatınca yeniden yükle (belleği boşaltır; oturumun açık kalır)",
-                       isOn: $prefs.autoReloadOnIdle)
+            Section(L10n.t("settings.section.performance")) {
+                Toggle(L10n.t("settings.autoReloadOnIdle"), isOn: $prefs.autoReloadOnIdle)
             }
-            Section("Dinleme geçmişi") {
-                Toggle("Dinlediklerimi kaydet", isOn: $prefs.historyEnabled)
-                Text("Çalan parçalar bu Mac'te yerel bir dosyaya yazılır; hiçbir yere gönderilmez. En çok dinlediğin sanatçı ve şarkı istatistikleri buradan üretilir. Bir parça, 30 saniye ya da süresinin yarısı çaldıysa sayılır.")
+            Section(L10n.t("settings.section.history")) {
+                Toggle(L10n.t("settings.historyEnabled"), isOn: $prefs.historyEnabled)
+                Text(L10n.t("settings.history.caption"))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
-            Section("Yerel arayüz") {
-                Toggle("Yerel arayüz modu (YT'nin web arayüzünü SwiftUI kabuğuyla değiştirir)",
-                       isOn: $prefs.nativeUIMode)
-                Text("Tam yerel kabuk: kitaplık, ana sayfa, keşfet + listeler, çalma listesi/albüm/sanatçı sayfaları, arama, kuyruk ve şarkı sözü panelleri, temalar. WebView altta ses motoru olarak çalışmaya devam eder.")
+            Section(L10n.t("settings.section.nativeUI")) {
+                Toggle(L10n.t("settings.nativeUIMode"), isOn: $prefs.nativeUIMode)
+                Text(L10n.t("settings.nativeUI.caption"))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -59,8 +55,27 @@ struct SettingsView: View {
 
     private var interfaceTab: some View {
         Form {
-            Section("Tema") {
-                Picker("Renk teması", selection: $prefs.theme) {
+            Section(L10n.t("settings.section.language")) {
+                Picker(L10n.t("settings.language"), selection: $prefs.language) {
+                    ForEach(AppLanguage.allCases) { lang in
+                        Text(lang.label).tag(lang)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Picker(L10n.t("settings.region"), selection: $prefs.region) {
+                    ForEach(AppRegion.allCases) { region in
+                        Text(region.label(in: prefs.language.resolved)).tag(region)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Text(L10n.t("settings.region.caption"))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Section(L10n.t("settings.section.theme")) {
+                Picker(L10n.t("settings.colorTheme"), selection: $prefs.theme) {
                     ForEach(Theme.allCases) { theme in
                         Text("\(theme.displayName)\(theme.variantSuffix)").tag(theme)
                     }
@@ -68,7 +83,7 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
             }
             Section {
-                Text("Tema anında uygulanır. Bir şey ters görünürse Denetimler → Yeniden Yükle.")
+                Text(L10n.t("settings.theme.caption"))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

@@ -67,10 +67,10 @@ enum StatsRange: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .week:  return "Bu hafta"
-        case .month: return "Bu ay"
-        case .year:  return "Bu yıl"
-        case .all:   return "Tüm zamanlar"
+        case .week:  return L10n.t("stats.range.week")
+        case .month: return L10n.t("stats.range.month")
+        case .year:  return L10n.t("stats.range.year")
+        case .all:   return L10n.t("stats.range.all")
         }
     }
 
@@ -248,6 +248,12 @@ final class PlayHistoryStore {
             """, [.int(Int64(since.timeIntervalSince1970))])
 
         let parser = DateFormatter()
+        // A fixed-format formatter must pin a POSIX locale, otherwise the
+        // user's regional calendar drives parsing and "yyyy" is read as a
+        // non-Gregorian year — on a Mac set to e.g. an Islamic or Buddhist
+        // calendar every row would fail to parse and the chart would silently
+        // come up empty. The SQL emits Gregorian ISO dates regardless.
+        parser.locale = Locale(identifier: "en_US_POSIX")
         parser.dateFormat = "yyyy-MM-dd"
         parser.timeZone = .current
         return rows.compactMap { row in
