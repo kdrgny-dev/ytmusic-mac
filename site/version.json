@@ -1,5 +1,5 @@
 {
-  "version": "0.5.0",
-  "notes": "Search is now a full page like Explore and History, not a pop-up dialog. Lyrics are time-synced and follow the song line by line in the now-playing screen and side panel. A new music-video Clip mode plays the video full-window, and shows a flowing lyric view when a track has no video. Track lists now highlight the exact song that is playing and reveal a play button on hover.",
+  "version": "0.6.0",
+  "notes": "A new Radio page turns your own listening history into endless stations: a daily discovery set that rotates every morning, one station for each artist you play most, your favourites, YouTube's own mixes, and genre and mood radios. Click one and it plays. Home now opens with shelves YouTube Music cannot give you - a weekly mix, what you had on repeat a year ago today, and the favourites you drifted away from - all built from a play log that never leaves your Mac. The app also speaks English and Turkish now, switching live from Settings with no restart, right down to the menu bar; region is a separate setting, so an English interface no longer forces you into US charts. Album art from your listening history is sharp instead of blurry.",
   "dmg": "https://github.com/kdrgny-dev/ytmusic-mac/releases/latest/download/YTMusic.dmg"
 }
