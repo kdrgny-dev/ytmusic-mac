@@ -205,7 +205,7 @@
   <div class="wrap">
     <div class="badge reveal"><span class="dot"></span> Native macOS app · not a browser tab</div>
     <h1 class="reveal d1">YouTube Music,<br><span class="grad">the way macOS deserves.</span></h1>
-    <p class="sub reveal d2">A fast, native shell around YouTube Music with all the OS integrations Google never shipped — media keys, Now&nbsp;Playing, a mini player, lyrics, a full native UI, themes, crossfade and <strong>one-click similar-song playlists</strong>. In a 5&nbsp;MB app instead of a 500&nbsp;MB browser tab.</p>
+    <p class="sub reveal d2">A fast, native shell around YouTube Music with all the OS integrations Google never shipped — media keys, Now&nbsp;Playing, a mini player, lyrics, a full native UI, themes, crossfade, <strong>endless radio built from your own listening</strong> and <strong>one-click similar-song playlists</strong>. In a 5&nbsp;MB app instead of a 500&nbsp;MB browser tab.</p>
     <div class="cta-row reveal d3">
       <a class="btn primary" href="https://github.com/kdrgny-dev/ytmusic-mac/releases/latest/download/YTMusic.dmg">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l4-4m-4 4l-4-4M5 21h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -287,10 +287,19 @@
         <h3>Media keys &amp; Now Playing</h3><p>F7/F8/F9, AirPods double-tap, Control Center and the lock screen all control playback — with live artwork — even when the app is in the background.</p></div>
 
       <div class="feat reveal d1"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.8"/><path d="M8 20h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
-        <h3>Full native UI mode</h3><p>An optional SwiftUI shell over the web player: sidebar, home, playlists, albums, artist pages, search and a native now-playing screen — the web chrome gone entirely.</p></div>
+        <h3>Full native UI mode</h3><p>An optional SwiftUI shell over the web player: sidebar, home, radio, playlists, albums, artist pages, search and a native now-playing screen — the web chrome gone entirely.</p></div>
 
       <div class="feat reveal d2"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="4" y="8" width="16" height="9" rx="2.5" stroke="currentColor" stroke-width="1.8"/><circle cx="8" cy="12.5" r="1.4" fill="currentColor"/><path d="M12 11.5h5M12 14h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></div>
         <h3>Floating mini player</h3><p>An always-on-top, resizable window with artwork, title, like/dislike and transport controls. Tuck it in a corner while you work.</p></div>
+
+      <div class="feat reveal"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="2.5" stroke="currentColor" stroke-width="1.8"/><path d="M7.8 7.8a6 6 0 000 8.4M16.2 7.8a6 6 0 010 8.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M4.9 4.9a10 10 0 000 14.2M19.1 4.9a10 10 0 010 14.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".55"/></svg></div>
+        <h3>Radio, built from your history</h3><p>A whole page of endless stations seeded from what you actually play — a daily discovery set that rotates every morning, one station per artist you love, plus genre and mood radios. Click once and it plays.</p></div>
+
+      <div class="feat reveal d1"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M12 4v16M7 20l5-12 5 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h3>A memory YouTube doesn’t keep</h3><p>Your plays are logged locally, so home can show things YouTube Music simply can’t: a weekly mix, what you had on repeat a year ago today, and the favourites you drifted away from. Nothing leaves your Mac.</p></div>
+
+      <div class="feat reveal d2"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" stroke="currentColor" stroke-width="1.5"/></svg></div>
+        <h3>Speaks your language</h3><p>English and Turkish, switching live with no restart — right down to the menu bar. Pick your region separately, so an English interface doesn’t force you into someone else’s charts.</p></div>
 
       <div class="feat reveal"><div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 6h10M4 12h16M4 18h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
         <h3>Karaoke lyrics, in sync</h3><p>Time-synced lyrics pulled straight through YouTube Music — the current line grows and stays centered, following the song beat by beat, in the now-playing screen or a slide-out panel next to the queue.</p></div>
@@ -323,10 +332,10 @@
     <div class="show reveal">
       <div class="txt">
         <span class="tag">Home</span>
-        <h3>Your recommendations, natively laid out</h3>
-        <p>Listen-again rows, mixes and today’s hits in a clean, fast native grid — no web page reflow, no wasted chrome.</p>
+        <h3>Your recommendations, plus your own past</h3>
+        <p>YouTube’s listen-again rows and today’s hits sit under shelves built from your own play history — a weekly mix, a year ago today, the favourites you forgot. In a clean, fast native grid with no web page reflow.</p>
         <ul>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Instant, smooth-scrolling carousels</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> A daily discovery set that rotates each morning</li>
           <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Hover-to-play on any card</li>
           <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg> Sidebar with all your playlists</li>
         </ul>

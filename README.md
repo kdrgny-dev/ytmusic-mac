@@ -11,6 +11,16 @@ bar item, a floating mini player, sleep timer, global hotkeys.
 
 ## Features
 
+- **Radio** — a page of endless stations seeded from your own play
+  history: a daily discovery set that rotates every morning, one station
+  per artist you play most, your favourites, YouTube's own mixes, and
+  genre/mood radios
+- **A memory YouTube doesn't keep** — plays are logged to a local SQLite
+  file, so home can show a weekly mix, what you played a year ago today,
+  and favourites you drifted away from. Nothing leaves the machine
+- **App language** — English and Turkish, switched live from Settings
+  with no restart. Region is a separate setting, so an English interface
+  doesn't force you into US charts
 - **Login + persistent session** — log in once, stays logged in
 - **Media keys** — F7/F8/F9 control playback even when the app is in the
   background, via `MPRemoteCommandCenter`
