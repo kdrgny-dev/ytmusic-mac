@@ -195,7 +195,7 @@ final class PlayHistoryStore {
             ArtistStat(artist: $0["artist"]?.stringValue ?? "",
                        plays: Int($0["plays"]?.intValue ?? 0),
                        listenedMs: $0["listened"]?.intValue ?? 0,
-                       artworkURL: $0["artwork_url"]?.stringValue)
+                       artworkURL: YTImageURL.resized($0["artwork_url"]?.stringValue, to: Self.coverSize))
         }
     }
 
@@ -209,14 +209,85 @@ final class PlayHistoryStore {
             FROM plays WHERE started_at >= ? AND title <> ''
             GROUP BY title, artist ORDER BY plays DESC, listened DESC LIMIT ?;
             """, [.int(Int64(since.timeIntervalSince1970)), .int(Int64(limit))])
-        return rows.map {
-            TrackStat(videoId: $0["video_id"]?.stringValue ?? "",
-                      title: $0["title"]?.stringValue ?? "",
-                      artist: $0["artist"]?.stringValue ?? "",
-                      plays: Int($0["plays"]?.intValue ?? 0),
-                      listenedMs: $0["listened"]?.intValue ?? 0,
-                      artworkURL: $0["artwork_url"]?.stringValue)
-        }
+        return rows.map(Self.trackStat)
+    }
+
+    /// Each of your most-played artists paired with their single most-played
+    /// track, ordered by how much you play the artist overall.
+    ///
+    /// This is what seeds artist radios. YT only hands out an artist-radio id
+    /// through its own artist page, which we don't parse, so a radio is always
+    /// seeded from a track — the artist's biggest one is the closest stand-in.
+    /// Rows without a `video_id` are useless as a seed and dropped.
+    func topTrackPerArtist(since: Date, limit: Int = 12) -> [TrackStat] {
+        let rows = read("""
+            SELECT artist, title, video_id, plays, listened, artwork_url FROM (
+                SELECT artist, title, MIN(video_id) AS video_id,
+                       COUNT(*) AS plays, SUM(played_ms) AS listened, artwork_url,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY artist ORDER BY COUNT(*) DESC, SUM(played_ms) DESC
+                       ) AS rn,
+                       SUM(COUNT(*)) OVER (PARTITION BY artist) AS artist_plays
+                FROM plays
+                WHERE started_at >= ? AND artist <> '' AND title <> '' AND video_id <> ''
+                GROUP BY artist, title
+            )
+            WHERE rn = 1
+            ORDER BY artist_plays DESC, listened DESC
+            LIMIT ?;
+            """, [.int(Int64(since.timeIntervalSince1970)), .int(Int64(limit))])
+        return rows.map(Self.trackStat)
+    }
+
+    /// Tracks played inside a window. Drives the archive shelves ("a year ago
+    /// today"), so the window is usually a single day far in the past.
+    func tracksPlayedBetween(start: Date, end: Date, limit: Int = 20) -> [TrackStat] {
+        let rows = read("""
+            SELECT title, artist, MIN(video_id) AS video_id,
+                   COUNT(*) AS plays, SUM(played_ms) AS listened,
+                   MAX(started_at) AS last_at, artwork_url
+            FROM plays
+            WHERE started_at >= ? AND started_at < ? AND title <> '' AND video_id <> ''
+            GROUP BY title, artist
+            ORDER BY plays DESC, listened DESC LIMIT ?;
+            """, [.int(Int64(start.timeIntervalSince1970)),
+                  .int(Int64(end.timeIntervalSince1970)),
+                  .int(Int64(limit))])
+        return rows.map(Self.trackStat)
+    }
+
+    /// Tracks you played a lot once and haven't touched since `playedBefore`.
+    /// `minPlays` is what separates a forgotten favourite from something you
+    /// skipped past once a year ago.
+    func forgottenFavorites(playedBefore: Date, minPlays: Int = 3, limit: Int = 20) -> [TrackStat] {
+        let rows = read("""
+            SELECT title, artist, MIN(video_id) AS video_id,
+                   COUNT(*) AS plays, SUM(played_ms) AS listened,
+                   MAX(started_at) AS last_at, artwork_url
+            FROM plays
+            WHERE title <> '' AND video_id <> ''
+            GROUP BY title, artist
+            HAVING MAX(started_at) < ? AND COUNT(*) >= ?
+            ORDER BY plays DESC, listened DESC LIMIT ?;
+            """, [.int(Int64(playedBefore.timeIntervalSince1970)),
+                  .int(Int64(minPlays)),
+                  .int(Int64(limit))])
+        return rows.map(Self.trackStat)
+    }
+
+    /// What the player bar was showing gets stored, and that's a 60px
+    /// thumbnail — every consumer of these rows renders covers far bigger than
+    /// that. Upgrading the URL's size suffix here fixes the rows already on
+    /// disk as well as new ones.
+    static let coverSize = 544
+
+    private static func trackStat(_ row: SQLRow) -> TrackStat {
+        TrackStat(videoId: row["video_id"]?.stringValue ?? "",
+                  title: row["title"]?.stringValue ?? "",
+                  artist: row["artist"]?.stringValue ?? "",
+                  plays: Int(row["plays"]?.intValue ?? 0),
+                  listenedMs: row["listened"]?.intValue ?? 0,
+                  artworkURL: YTImageURL.resized(row["artwork_url"]?.stringValue, to: coverSize))
     }
 
     func totalListenedMs(since: Date) -> Int64 {

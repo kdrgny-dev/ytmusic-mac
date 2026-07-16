@@ -164,6 +164,7 @@ final class NativeShellViewModel: ObservableObject {
         case empty
         case home
         case explore
+        case radio
         case history
         case statistics
         case search
@@ -256,6 +257,7 @@ final class NativeShellViewModel: ObservableObject {
         case .empty: break
         case .home: if !homeLoaded { Task { await loadHome() } }
         case .explore: if !exploreLoaded { Task { await loadExplore() } }
+        case .radio: Task { await loadRadio() }
         case .history: Task { await loadHistory() }
         case .statistics: loadStatistics()
         case .search: break
@@ -603,6 +605,7 @@ final class NativeShellViewModel: ObservableObject {
         switch mainSection {
         case .home:     reloadHome()
         case .explore:  reloadExplore()
+        case .radio:    reloadRadio()
         case .history:  reloadHistory()
         case .statistics: loadStatistics()
         case .search:   break
@@ -1410,11 +1413,122 @@ final class NativeShellViewModel: ObservableObject {
         pushHistory()
         mainSection = .home
         selectedPlaylist = nil
-        // Lazy-load: fetch once per session, refresh on explicit user action.
+        // YT's shelves are fetched once per session; the personal ones are
+        // local reads that go stale as you listen, so they refresh every visit.
         if !homeLoaded { Task { await loadHome() } }
+        else { Task { await loadPersonalShelves() } }
     }
 
     func reloadHome() { Task { await loadHome() } }
+
+    // MARK: - Personal home shelves
+
+    /// A shelf built from local history rather than from YT.
+    ///
+    /// These are the things YouTube Music structurally cannot give us: it
+    /// exposes no listening stats and no archive, so "what were you playing a
+    /// year ago" only exists because this app keeps its own SQLite log. They
+    /// carry real tracks (not radio seeds) and play through the app's own
+    /// queue.
+    struct PersonalShelf: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let subtitle: String
+        let icon: String
+        let tracks: [TrackStat]
+    }
+
+    @Published private(set) var personalShelves: [PersonalShelf] = []
+    @Published private(set) var dailyStations: [RadioStation] = []
+
+    /// Rebuilt on every Home load rather than cached with `homeLoaded`: these
+    /// come from local SQLite (cheap) and go stale as the user listens.
+    private func loadPersonalShelves() async {
+        guard Preferences.shared.historyEnabled, let store = PlayHistoryStore.shared else {
+            personalShelves = []
+            dailyStations = []
+            return
+        }
+
+        let now = Date()
+        let built = await Task.detached(priority: .userInitiated) { () -> ([PersonalShelf], [TrackStat]) in
+            let allTime = StatsRange.all.start(from: now)
+            let pool = store.topTracks(since: allTime, limit: 120)
+            var shelves: [PersonalShelf] = []
+
+            let weekly = RadioCatalog.weeklyMix(pool: pool, on: now)
+            if weekly.count >= 5 {
+                shelves.append(PersonalShelf(id: "weeklyMix",
+                                             title: L10n.t("vm.home.weeklyMix.title"),
+                                             subtitle: L10n.t("vm.home.weeklyMix.subtitle"),
+                                             icon: "square.stack.3d.up.fill",
+                                             tracks: weekly))
+            }
+
+            // "A year ago today" — only offered once there's a year of history
+            // to look back on, otherwise it's an empty row every time.
+            if let window = RadioCatalog.sameDay(yearsAgo: 1, from: now) {
+                let tracks = store.tracksPlayedBetween(start: window.start, end: window.end, limit: 20)
+                if !tracks.isEmpty {
+                    shelves.append(PersonalShelf(id: "yearAgo",
+                                                 title: L10n.t("vm.home.yearAgo.title"),
+                                                 subtitle: L10n.t("vm.home.yearAgo.subtitle"),
+                                                 icon: "calendar",
+                                                 tracks: tracks))
+                }
+            }
+
+            if let window = RadioCatalog.month(monthsAgo: 6, from: now) {
+                let tracks = store.tracksPlayedBetween(start: window.start, end: window.end, limit: 20)
+                if tracks.count >= 5 {
+                    shelves.append(PersonalShelf(id: "sixMonths",
+                                                 title: L10n.t("vm.home.sixMonths.title"),
+                                                 subtitle: L10n.t("vm.home.sixMonths.subtitle"),
+                                                 icon: "clock.arrow.circlepath",
+                                                 tracks: tracks))
+                }
+            }
+
+            let forgotten = store.forgottenFavorites(playedBefore: now.addingTimeInterval(-90 * 86_400))
+            if forgotten.count >= 5 {
+                shelves.append(PersonalShelf(id: "forgotten",
+                                             title: L10n.t("vm.home.forgotten.title"),
+                                             subtitle: L10n.t("vm.home.forgotten.subtitle"),
+                                             icon: "arrow.uturn.backward.circle",
+                                             tracks: forgotten))
+            }
+            return (shelves, pool)
+        }.value
+
+        personalShelves = built.0
+        dailyStations = RadioCatalog.dailyDiscovery(pool: built.1, on: now, count: 6)
+    }
+
+    /// Play a locally-built mix. There's no YT playlist behind these, so the
+    /// first track starts standalone and the rest go through the app's own
+    /// queue — the same path the queue panel and "play next" already use.
+    func playPersonalShelf(_ shelf: PersonalShelf) {
+        playLocalTracks(shelf.tracks)
+    }
+
+    func playLocalTracks(_ tracks: [TrackStat]) {
+        let playable = tracks.filter { !$0.videoId.isEmpty }
+        guard let first = playable.first else { return }
+        clearOwnQueue()
+        for track in playable.dropFirst() {
+            addToQueue(track: Self.trackSummary(from: track))
+        }
+        playStandaloneTrack(Self.trackSummary(from: first))
+        showToast(L10n.plural("vm.toast.mixQueued", playable.count))
+    }
+
+    static func trackSummary(from stat: TrackStat) -> TrackSummary {
+        TrackSummary(id: stat.videoId,
+                     title: stat.title,
+                     artist: stat.artist,
+                     duration: nil,
+                     thumbnailURL: stat.artworkURL)
+    }
 
     /// Drop everything YouTube localised for us and fetch it again. Shelf
     /// titles, genre/mood names and chart contents all come back keyed off
@@ -1455,7 +1569,11 @@ final class NativeShellViewModel: ObservableObject {
         let sections = await genresTask
         homeShelves = shelves
         genreSections = sections
-        homeError = shelves.isEmpty && sections.isEmpty
+        await loadPersonalShelves()
+        // The personal shelves come from local SQLite, so Home still has
+        // content to show when YT is unreachable — only claim failure when
+        // there's nothing at all.
+        homeError = shelves.isEmpty && sections.isEmpty && personalShelves.isEmpty
             ? L10n.t("vm.error.homeFailed")
             : nil
         homeLoaded = true
@@ -1466,6 +1584,145 @@ final class NativeShellViewModel: ObservableObject {
         mainSection = .explore
         selectedPlaylist = nil
         if !exploreLoaded { Task { await loadExplore() } }
+    }
+
+    // MARK: - Radio
+
+    /// A titled row on the radio page. Stations and YT's own mix cards are
+    /// different shapes, so a section carries whichever it has — the view
+    /// renders both as tiles.
+    struct RadioSection: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let subtitle: String?
+        var stations: [RadioStation] = []
+        var cards: [HomeCard] = []
+
+        var isEmpty: Bool { stations.isEmpty && cards.isEmpty }
+    }
+
+    @Published private(set) var radioSections: [RadioSection] = []
+    @Published private(set) var radioLoading = false
+    @Published private(set) var radioError: String?
+    /// True when the page is empty only because there's no history to build
+    /// from — a different message from "we failed to load".
+    @Published private(set) var radioNeedsHistory = false
+
+    func goRadio() {
+        pushHistory()
+        mainSection = .radio
+        selectedPlaylist = nil
+        Task { await loadRadio() }
+    }
+
+    func reloadRadio() { Task { await loadRadio() } }
+
+    /// Builds the radio page.
+    ///
+    /// Not cached like Home: the personal sections come from the local history,
+    /// which changes as you listen, and rebuilding them is a few SQLite reads.
+    /// The only network call is for YT's own mixes, and that reuses whatever
+    /// Home already fetched when it can.
+    private func loadRadio() async {
+        guard !radioLoading else { return }
+        radioLoading = true
+        defer { radioLoading = false }
+
+        let personal = await personalRadioSections()
+        let mixes = await ytMixSection()
+        await ensureGenresLoaded()
+
+        radioSections = (personal + [mixes].compactMap { $0 }).filter { !$0.isEmpty }
+        radioNeedsHistory = personal.isEmpty
+        // Genre chips render straight from `genreSections`, so the page still
+        // has something on it even when every section came back empty.
+        radioError = radioSections.isEmpty && genreSections.isEmpty
+            ? L10n.t("vm.error.radioFailed")
+            : nil
+    }
+
+    /// Radios seeded from what you actually listen to. Reads run off the main
+    /// thread — a long history makes these non-trivial.
+    private func personalRadioSections() async -> [RadioSection] {
+        guard Preferences.shared.historyEnabled, let store = PlayHistoryStore.shared else { return [] }
+
+        let now = Date()
+        let (topTracks, perArtist, pool) = await Task.detached(priority: .userInitiated) {
+            let since = StatsRange.all.start(from: now)
+            return (store.topTracks(since: since, limit: 12),
+                    store.topTrackPerArtist(since: since, limit: 12),
+                    // Deliberately wider than the top 12: the discovery
+                    // rotation needs somewhere to rotate to.
+                    store.topTracks(since: since, limit: 120))
+        }.value
+
+        var sections: [RadioSection] = []
+
+        let discovery = RadioCatalog.dailyDiscovery(pool: pool, on: now, count: 6)
+        if !discovery.isEmpty {
+            sections.append(RadioSection(id: "discovery",
+                                         title: L10n.t("vm.radio.discovery.title"),
+                                         subtitle: L10n.t("vm.radio.discovery.subtitle"),
+                                         stations: discovery))
+        }
+
+        let artistStations = RadioCatalog.byArtist(topTrackPerArtist: perArtist) {
+            L10n.t("vm.radio.artistStation", $0.artist)
+        }
+        if !artistStations.isEmpty {
+            sections.append(RadioSection(id: "artists",
+                                         title: L10n.t("vm.radio.artists.title"),
+                                         subtitle: L10n.t("vm.radio.artists.subtitle"),
+                                         stations: artistStations))
+        }
+
+        let favourites = RadioCatalog.forYou(topTracks: topTracks)
+        if !favourites.isEmpty {
+            sections.append(RadioSection(id: "forYou",
+                                         title: L10n.t("vm.radio.forYou.title"),
+                                         subtitle: L10n.t("vm.radio.forYou.subtitle"),
+                                         stations: favourites))
+        }
+        return sections
+    }
+
+    /// YT's own mixes, lifted out of the Home shelves. A mix card's id is the
+    /// `RD…` watch-playlist id, which is what separates it from an ordinary
+    /// playlist card.
+    private func ytMixSection() async -> RadioSection? {
+        if !homeLoaded { await loadHome() }
+        let mixes = homeShelves
+            .flatMap(\.items)
+            .filter { $0.id.hasPrefix("RD") || $0.id.hasPrefix("VLRD") }
+        guard !mixes.isEmpty else { return nil }
+        var seen = Set<String>()
+        let unique = mixes.filter { seen.insert($0.id).inserted }
+        return RadioSection(id: "ytMixes",
+                            title: L10n.t("vm.radio.ytMixes.title"),
+                            subtitle: L10n.t("vm.radio.ytMixes.subtitle"),
+                            cards: unique)
+    }
+
+    /// Mood/genre chips are the one kind of radio that needs no listening
+    /// history, so the radio page must not depend on Home having been visited
+    /// first — that's exactly the brand-new-user case.
+    private func ensureGenresLoaded() async {
+        guard genreSections.isEmpty else { return }
+        do {
+            let data = try await client.browse(browseId: "FEmusic_moods_and_genres")
+            genreSections = GenreParser.parseSections(data: data)
+        } catch {
+            // Non-fatal: the page still has whatever personal sections exist.
+        }
+    }
+
+    /// Start YT's radio around a station's seed track.
+    func startRadio(_ station: RadioStation) {
+        startRadio(TrackSummary(id: station.seedVideoId,
+                                title: station.title,
+                                artist: station.subtitle,
+                                duration: nil,
+                                thumbnailURL: station.artworkURL))
     }
 
     func goHistory() {

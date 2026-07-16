@@ -51,6 +51,7 @@ let shellTR: [String: String] = [
     // Sidebar
     "shell.sidebar.home": "Ana sayfa",
     "shell.sidebar.explore": "Keşfet",
+    "shell.sidebar.radio": "Radyo",
     "shell.sidebar.search": "Ara",
     "shell.sidebar.history": "Geçmiş",
     "shell.sidebar.statistics": "İstatistikler",
@@ -126,6 +127,19 @@ let shellTR: [String: String] = [
     "shell.greeting.afternoon": "İYİ GÜNLER",
     "shell.greeting.evening": "İYİ AKŞAMLAR",
     "shell.greeting.night": "İYİ GECELER",
+    "shell.home.dailyDiscovery.title": "Günlük keşif",
+    "shell.home.dailyDiscovery.subtitle": "Kitaplığından beslenen radyolar — her gün yenisi",
+
+    // Radio page
+    "shell.radio.kindLabel": "RADYO",
+    "shell.radio.title": "Radyo",
+    "shell.radio.subtitle": "Gerçekten dinlediklerinden kurulan sonsuz istasyonlar",
+    "shell.radio.badge": "Radyo",
+    "shell.radio.playSeed": "Sadece bu şarkıyı çal",
+    "shell.radio.needsHistory.title": "İstasyonların daha ısınıyor",
+    "shell.radio.needsHistory.caption": "Kişisel radyolar dinleme geçmişinden kuruluyor. Dinledikçe burada belirecekler — aşağıdaki türler ve mod'lar şimdiden hazır.",
+    "shell.radio.historyOff.title": "Dinleme geçmişi kapalı",
+    "shell.radio.historyOff.caption": "Kişisel radyolar dinleme geçmişinden kuruluyor. Onlar için Ayarlar → Dinleme geçmişi bölümünden kaydı aç. Aşağıdaki türler ve mod'lar her hâlükârda çalışıyor.",
 
     // Explore page
     "shell.explore.kindLabel": "KEŞFET",

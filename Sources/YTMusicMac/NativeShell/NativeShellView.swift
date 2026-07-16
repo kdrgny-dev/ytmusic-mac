@@ -506,6 +506,7 @@ private struct Sidebar: View {
         [
             .init(id: "home",    icon: "house.fill",            label: L10n.t("shell.sidebar.home"),    action: { vm.goHome() }),
             .init(id: "explore", icon: "safari",                label: L10n.t("shell.sidebar.explore"), action: { vm.goExplore() }),
+            .init(id: "radio",   icon: "dot.radiowaves.left.and.right", label: L10n.t("shell.sidebar.radio"), action: { vm.goRadio() }),
             .init(id: "search",  icon: "magnifyingglass",       label: L10n.t("shell.sidebar.search"),  action: { vm.goSearch() }),
             .init(id: "history", icon: "clock.arrow.circlepath", label: L10n.t("shell.sidebar.history"), action: { vm.goHistory() }),
             .init(id: "statistics", icon: "chart.bar.fill", label: L10n.t("shell.sidebar.statistics"), action: { vm.goStatistics() })
@@ -747,6 +748,7 @@ private struct Sidebar: View {
         switch id {
         case "home":    return vm.mainSection == .home
         case "explore": return vm.mainSection == .explore
+        case "radio":   return vm.mainSection == .radio
         case "history": return vm.mainSection == .history
         case "statistics": return vm.mainSection == .statistics
         case "search":  return vm.mainSection == .search
@@ -1323,6 +1325,8 @@ private struct MainContent: View {
                 HomeView(vm: vm)
             case .explore:
                 ExploreView(vm: vm)
+            case .radio:
+                RadioView(vm: vm)
             case .history:
                 HistoryView(vm: vm)
             case .statistics:
@@ -1872,6 +1876,12 @@ private struct HomeView: View {
                 } else if let msg = vm.homeError, vm.homeShelves.isEmpty {
                     errorState(msg)
                 } else {
+                    // Ours first: these are built from local history and are
+                    // the thing YT's own home can't offer.
+                    if !vm.dailyStations.isEmpty { dailyDiscoveryRow }
+                    ForEach(vm.personalShelves) { shelf in
+                        PersonalShelfRow(shelf: shelf, vm: vm)
+                    }
                     ForEach(vm.homeShelves) { shelf in
                         ShelfRow(shelf: shelf, vm: vm)
                     }
@@ -1911,6 +1921,24 @@ private struct HomeView: View {
             }
             .buttonStyle(.plain)
             .help(L10n.t("shell.action.refresh"))
+        }
+    }
+
+    private var dailyDiscoveryRow: some View {
+        CarouselSection(
+            title: L10n.t("shell.home.dailyDiscovery.title"),
+            subtitle: nil,
+            icon: "sparkles",
+            caption: L10n.t("shell.home.dailyDiscovery.subtitle"),
+            items: vm.dailyStations,
+            pageSize: 3,
+            estimatedItemWidth: 162
+        ) { station in
+            Button(action: { vm.startRadio(station) }) {
+                RadioStationTile(station: station, onPlay: { vm.startRadio(station) })
+            }
+            .buttonStyle(.plain)
+            .contextMenu { radioStationContextMenu(station, vm) }
         }
     }
 
@@ -2130,11 +2158,52 @@ private struct ShelfRow: View {
     }
 }
 
+/// A shelf built from the local play history. Unlike `ShelfRow` these carry
+/// real tracks, so the row plays as a list: the header pill starts it from the
+/// top and a tile starts it from that track onwards.
+private struct PersonalShelfRow: View {
+    let shelf: NativeShellViewModel.PersonalShelf
+    @ObservedObject var vm: NativeShellViewModel
+
+    var body: some View {
+        CarouselSection(
+            title: shelf.title,
+            subtitle: nil,
+            icon: shelf.icon,
+            caption: shelf.subtitle,
+            onPlayAll: { vm.playPersonalShelf(shelf) },
+            items: shelf.tracks,
+            pageSize: 3,
+            estimatedItemWidth: 162
+        ) { stat in
+            let card = Self.card(for: stat)
+            Button(action: { play(from: stat) }) {
+                HomeCardView(card: card, onPlay: { play(from: stat) })
+            }
+            .buttonStyle(.plain)
+            .contextMenu { homeCardContextMenu(card, vm) }
+        }
+    }
+
+    private func play(from stat: TrackStat) {
+        vm.playLocalTracks(Array(shelf.tracks.drop(while: { $0.id != stat.id })))
+    }
+
+    private static func card(for stat: TrackStat) -> NativeShellViewModel.HomeCard {
+        NativeShellViewModel.HomeCard(id: stat.videoId,
+                                      kind: .song,
+                                      title: stat.title,
+                                      subtitle: stat.artist,
+                                      thumbnailURL: stat.artworkURL,
+                                      playlistId: nil)
+    }
+}
+
 /// Shared right-click menu for a HomeCard (used by Home/Explore shelves and
 /// the artist page's album/single carousels). Actions depend on card kind.
 @MainActor @ViewBuilder
-private func homeCardContextMenu(_ card: NativeShellViewModel.HomeCard,
-                                 _ vm: NativeShellViewModel) -> some View {
+func homeCardContextMenu(_ card: NativeShellViewModel.HomeCard,
+                         _ vm: NativeShellViewModel) -> some View {
     switch card.kind {
     case .song:
         let t = NativeShellViewModel.TrackSummary(
@@ -2187,9 +2256,19 @@ private func homeCardContextMenu(_ card: NativeShellViewModel.HomeCard,
 /// Header (title + optional strapline) on the left, paired chevron pills
 /// on the right of the same row. Chevrons stay visible (no hover) and
 /// fade their fill when there's no further scroll in that direction.
-private struct CarouselSection<Item: Identifiable, Content: View>: View where Item.ID: Hashable {
+struct CarouselSection<Item: Identifiable, Content: View>: View where Item.ID: Hashable {
     let title: String
     let subtitle: String?
+    /// SF Symbol before the title, marking a row as one of ours rather than
+    /// one of YT's.
+    var icon: String? = nil
+    /// Sentence-length strapline under the title. `subtitle` is an uppercase
+    /// eyebrow above the title and turns anything longer than a label into
+    /// shouting.
+    var caption: String? = nil
+    /// Set when the whole row is playable as a list — renders a play pill in
+    /// the header.
+    var onPlayAll: (() -> Void)? = nil
     let items: [Item]
     /// How many items to step per chevron click.
     let pageSize: Int
@@ -2260,16 +2339,46 @@ private struct CarouselSection<Item: Identifiable, Content: View>: View where It
                         .tracking(0.5)
                         .foregroundColor(.primary.opacity(0.5))
                 }
-                Text(title)
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(.primary)
+                HStack(spacing: 6) {
+                    if let icon {
+                        Image(systemName: icon)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.primary.opacity(0.55))
+                    }
+                    Text(title)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.primary)
+                }
+                if let c = caption, !c.isEmpty {
+                    Text(c)
+                        .font(.system(size: 11))
+                        .foregroundColor(.primary.opacity(0.5))
+                }
             }
             Spacer()
+            if let onPlayAll {
+                playAllPill(onPlayAll)
+            }
             if needsScroll {
                 navChevron(.leftward, proxy: proxy)
                 navChevron(.rightward, proxy: proxy)
             }
         }
+    }
+
+    private func playAllPill(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: "play.fill").font(.system(size: 9, weight: .bold))
+                Text(L10n.t("transport.play")).font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundColor(.primary.opacity(0.9))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(Color.primary.opacity(0.10)))
+            .overlay(Capsule().stroke(Color.primary.opacity(0.18), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
     }
 
     private enum Direction { case leftward, rightward }
@@ -2310,7 +2419,7 @@ private struct CarouselSection<Item: Identifiable, Content: View>: View where It
 /// title and a horizontally scrolling carousel of coloured chips. We do
 /// one per YT-side gridRenderer so the user gets the same grouping the
 /// web UI has (Moods & moments / Genres / Decades / etc.).
-private struct GenreCarousel: View {
+struct GenreCarousel: View {
     let section: NativeShellViewModel.GenreSection
     @ObservedObject var vm: NativeShellViewModel
 
@@ -2397,7 +2506,7 @@ private struct GenreChipView: View {
     }
 }
 
-private struct HomeCardView: View {
+struct HomeCardView: View {
     let card: NativeShellViewModel.HomeCard
     /// Play action for the hover overlay. nil → no play button (artists).
     var onPlay: (() -> Void)? = nil

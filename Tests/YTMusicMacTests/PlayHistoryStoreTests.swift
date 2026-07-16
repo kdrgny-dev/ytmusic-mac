@@ -38,6 +38,93 @@ final class PlayHistoryStoreTests: XCTestCase {
         XCTAssertEqual(store.playCount(since: epoch.addingTimeInterval(-30 * 86_400)), 1)
     }
 
+    // MARK: - Radio / archive queries
+
+    func testTopTrackPerArtistPicksEachArtistsBiggestTrack() {
+        record("Radiohead", "Nude")
+        record("Radiohead", "Nude")
+        record("Radiohead", "Nude")
+        record("Radiohead", "Reckoner")
+        record("Portishead", "Roads")
+        record("Portishead", "Roads")
+
+        let seeds = store.topTrackPerArtist(since: epoch.addingTimeInterval(-86_400))
+        XCTAssertEqual(seeds.map(\.artist), ["Radiohead", "Portishead"])
+        XCTAssertEqual(seeds.map(\.title), ["Nude", "Roads"])
+    }
+
+    /// Ordering is by the artist's total plays, not by their top track's —
+    /// an artist you play constantly across many songs must outrank one you
+    /// played a single song by slightly more often.
+    func testTopTrackPerArtistOrdersByArtistTotalNotTrackTotal() {
+        for _ in 0..<4 { record("OneHit", "Only Song") }
+        for _ in 0..<3 { record("Broad", "A") }
+        for _ in 0..<3 { record("Broad", "B") }
+
+        let seeds = store.topTrackPerArtist(since: epoch.addingTimeInterval(-86_400))
+        XCTAssertEqual(seeds.first?.artist, "Broad")   // 6 plays total vs 4
+    }
+
+    /// A seed with no videoId would navigate to a broken watch URL.
+    func testTopTrackPerArtistSkipsRowsWithoutAVideoId() {
+        store.record(PlayRecord(videoId: "", title: "Ghost", artist: "Nobody", album: nil,
+                                durationMs: 200_000, playedMs: 60_000, startedAt: epoch))
+        record("Real", "Song")
+
+        let seeds = store.topTrackPerArtist(since: epoch.addingTimeInterval(-86_400))
+        XCTAssertEqual(seeds.map(\.artist), ["Real"])
+    }
+
+    func testTopTrackPerArtistRespectsTheWindow() {
+        record("Old", "Ancient", daysAgo: 40)
+        record("New", "Fresh", daysAgo: 1)
+
+        let seeds = store.topTrackPerArtist(since: epoch.addingTimeInterval(-30 * 86_400))
+        XCTAssertEqual(seeds.map(\.artist), ["New"])
+    }
+
+    func testTracksPlayedBetweenIsHalfOpen() {
+        record("A", "Inside", daysAgo: 5)
+        record("B", "OnTheEdge", daysAgo: 3)   // exactly at `end`
+        record("C", "Outside", daysAgo: 1)
+
+        let start = epoch.addingTimeInterval(-6 * 86_400)
+        let end = epoch.addingTimeInterval(-3 * 86_400)
+        let tracks = store.tracksPlayedBetween(start: start, end: end)
+        // `end` is exclusive, so the row sitting exactly on it is out.
+        XCTAssertEqual(tracks.map(\.title), ["Inside"])
+    }
+
+    func testTracksPlayedBetweenReturnsNothingForAnEmptyWindow() {
+        record("A", "Song", daysAgo: 5)
+        let t = epoch.addingTimeInterval(-100 * 86_400)
+        XCTAssertTrue(store.tracksPlayedBetween(start: t, end: t).isEmpty)
+    }
+
+    func testForgottenFavoritesNeedsBothAgeAndPlayCount() {
+        // Played a lot, long ago → forgotten favourite.
+        for _ in 0..<4 { record("Loved", "Anthem", daysAgo: 200) }
+        // Played once, long ago → not a favourite, just noise.
+        record("Skipped", "Meh", daysAgo: 200)
+        // Played a lot, recently → not forgotten.
+        for _ in 0..<4 { record("Current", "Hit", daysAgo: 1) }
+
+        let forgotten = store.forgottenFavorites(playedBefore: epoch.addingTimeInterval(-90 * 86_400),
+                                                 minPlays: 3)
+        XCTAssertEqual(forgotten.map(\.title), ["Anthem"])
+    }
+
+    /// A track played long ago AND recently isn't forgotten — the cutoff has
+    /// to test the most recent play, not any play.
+    func testForgottenFavoritesExcludesTracksRevivedRecently() {
+        for _ in 0..<4 { record("Revived", "Comeback", daysAgo: 200) }
+        record("Revived", "Comeback", daysAgo: 2)
+
+        let forgotten = store.forgottenFavorites(playedBefore: epoch.addingTimeInterval(-90 * 86_400),
+                                                 minPlays: 3)
+        XCTAssertTrue(forgotten.isEmpty)
+    }
+
     func testTopTracksGroupsTheSameSongAcrossVideoIds() {
         // Same song reached from an album and from a playlist: different ids.
         store.record(PlayRecord(videoId: "aaa", title: "Roads", artist: "Portishead",

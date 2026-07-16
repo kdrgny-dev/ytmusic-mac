@@ -53,6 +53,7 @@ let shellEN: [String: String] = [
     // Sidebar
     "shell.sidebar.home": "Home",
     "shell.sidebar.explore": "Explore",
+    "shell.sidebar.radio": "Radio",
     "shell.sidebar.search": "Search",
     "shell.sidebar.history": "History",
     "shell.sidebar.statistics": "Statistics",
@@ -128,6 +129,19 @@ let shellEN: [String: String] = [
     "shell.greeting.afternoon": "GOOD AFTERNOON",
     "shell.greeting.evening": "GOOD EVENING",
     "shell.greeting.night": "GOOD NIGHT",
+    "shell.home.dailyDiscovery.title": "Daily discovery",
+    "shell.home.dailyDiscovery.subtitle": "Radios seeded from your library — a new set every day",
+
+    // Radio page
+    "shell.radio.kindLabel": "RADIO",
+    "shell.radio.title": "Radio",
+    "shell.radio.subtitle": "Endless stations built from what you actually listen to",
+    "shell.radio.badge": "Radio",
+    "shell.radio.playSeed": "Play just this song",
+    "shell.radio.needsHistory.title": "Your stations are still warming up",
+    "shell.radio.needsHistory.caption": "Personal radios are built from your listening history. Keep playing and they'll show up here — the genres and moods below work right now.",
+    "shell.radio.historyOff.title": "Listening history is off",
+    "shell.radio.historyOff.caption": "Personal radios are built from your listening history. To get them, turn recording on under Settings → Listening history. The genres and moods below work either way.",
 
     // Explore page
     "shell.explore.kindLabel": "EXPLORE",
