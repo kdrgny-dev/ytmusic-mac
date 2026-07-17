@@ -45,16 +45,23 @@ bar item, a floating mini player, sleep timer, global hotkeys.
 
 ## Install
 
-Pre-built `.app` is not currently distributed. Build it yourself — it
-takes about a minute.
+[**Download the latest .dmg**](https://github.com/kdrgny-dev/ytmusic-mac/releases/latest/download/YTMusic.dmg)
+— about 2 MB, macOS 13 or newer, Apple Silicon and Intel. Open it, drag
+**YTMusic** into Applications, and launch it. The app checks for updates
+on its own and tells you when a new version is out.
 
-### Requirements
+macOS will say the app is from an unidentified developer the first time:
+right-click it in Applications and pick **Open**.
+
+### Build it yourself
+
+Takes about a minute.
+
+**Requirements**
 
 - macOS 13 (Ventura) or newer
 - Xcode Command Line Tools (`xcode-select --install`) — no full Xcode needed
 - Swift 5.9+ (ships with recent CLT)
-
-### Build
 
 ```bash
 git clone https://github.com/kdrgny-dev/ytmusic-mac.git
