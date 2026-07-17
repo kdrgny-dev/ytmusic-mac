@@ -48,6 +48,10 @@ let shellEN: [String: String] = [
     "shell.search.emptyHint": "Type to search %@",
     "shell.search.suggestions": "SUGGESTIONS",
     "shell.search.recent": "RECENT SEARCHES",
+    "shell.search.topArtists": "Artists you play most",
+    "shell.search.topArtists.caption": "Your all-time favourites, straight to their page",
+    "shell.search.artistPlays.one": "%d play",
+    "shell.search.artistPlays.other": "%d plays",
     "shell.search.noResultsFor": "No results for “%@”",
 
     // Sidebar

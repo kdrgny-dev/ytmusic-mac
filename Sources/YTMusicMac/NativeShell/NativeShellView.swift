@@ -301,19 +301,7 @@ private struct SearchView: View {
     @ViewBuilder
     private var resultsArea: some View {
         if vm.searchQuery.isEmpty {
-            if vm.searchHistory.isEmpty {
-                VStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 28, weight: .light))
-                        .foregroundColor(.primary.opacity(0.25))
-                    Text(L10n.t("shell.search.emptyHint", vm.searchTab.label.lowercased()))
-                        .font(.system(size: 12))
-                        .foregroundColor(.primary.opacity(0.4))
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                recentSearches
-            }
+            discovery
         } else if let msg = vm.searchError, vm.searchResults.isEmpty, !vm.searchLoading {
             ScrollView {
                 VStack(spacing: 4) {
@@ -382,46 +370,146 @@ private struct SearchView: View {
         }
     }
 
-    private var recentSearches: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text(L10n.t("shell.search.recent"))
-                        .font(.system(size: 10, weight: .semibold))
-                        .tracking(0.6)
-                        .foregroundColor(.primary.opacity(0.5))
-                    Spacer()
-                    Button(L10n.t("shell.action.clear")) { vm.clearSearchHistory() }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.primary.opacity(0.5))
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                ForEach(vm.searchHistory, id: \.self) { q in
-                    Button(action: { vm.applyRecentSearch(q); focused = true }) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "clock.arrow.circlepath")
-                                .font(.system(size: 12))
-                                .foregroundColor(.primary.opacity(0.4))
-                            Text(q)
-                                .font(.system(size: 13))
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                            Image(systemName: "arrow.up.left")
-                                .font(.system(size: 10))
-                                .foregroundColor(.primary.opacity(0.3))
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .contentShape(Rectangle())
+    /// What the page shows before the first keystroke. Recent queries, then rows
+    /// built from local play history — no network, so it's on screen
+    /// immediately. Falls back to the bare hint until there's history to show.
+    @ViewBuilder
+    private var discovery: some View {
+        if vm.searchHistory.isEmpty && vm.searchTopArtists.isEmpty && vm.searchRecentShelf == nil {
+            VStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 28, weight: .light))
+                    .foregroundColor(.primary.opacity(0.25))
+                Text(L10n.t("shell.search.emptyHint", vm.searchTab.label.lowercased()))
+                    .font(.system(size: 12))
+                    .foregroundColor(.primary.opacity(0.4))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 26) {
+                    if !vm.searchHistory.isEmpty { recentChips }
+                    if !vm.searchTopArtists.isEmpty { topArtists }
+                    if let shelf = vm.searchRecentShelf {
+                        PersonalShelfRow(shelf: shelf, vm: vm)
                     }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
+            }
+        }
+    }
+
+    private var recentChips: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(L10n.t("shell.search.recent"))
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(0.6)
+                    .foregroundColor(.primary.opacity(0.5))
+                Spacer()
+                Button(L10n.t("shell.action.clear")) { vm.clearSearchHistory() }
                     .buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.primary.opacity(0.5))
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(vm.searchHistory, id: \.self) { q in
+                        Button(action: { vm.applyRecentSearch(q); focused = true }) {
+                            HStack(spacing: 5) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .font(.system(size: 9))
+                                    .foregroundColor(.primary.opacity(0.4))
+                                Text(q)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.primary)
+                                    .lineLimit(1)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(Color.primary.opacity(0.07)))
+                            .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.vertical, 1)
+            }
+        }
+    }
+
+    private var topArtists: some View {
+        CarouselSection(
+            title: L10n.t("shell.search.topArtists"),
+            subtitle: nil,
+            icon: "person.2.fill",
+            caption: L10n.t("shell.search.topArtists.caption"),
+            items: vm.searchTopArtists,
+            pageSize: 3,
+            estimatedItemWidth: 130
+        ) { stat in
+            Button(action: { vm.openArtistByName(stat.artist) }) {
+                ArtistAvatarTile(stat: stat)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+/// A most-played artist from local history. Circular like RadioStationTile's
+/// artist stations, but clicking opens the artist page instead of starting a
+/// radio — history stores no browseId, so the name goes through
+/// `openArtistByName`'s search-and-open path.
+private struct ArtistAvatarTile: View {
+    let stat: ArtistStat
+    @State private var hovered = false
+
+    var body: some View {
+        VStack(spacing: 8) {
+            cover
+                .frame(width: 110, height: 110)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(Color.primary.opacity(hovered ? 0.18 : 0), lineWidth: 1))
+                .scaleEffect(hovered ? 1.03 : 1.0)
+                .shadow(color: .black.opacity(hovered ? 0.4 : 0.0), radius: 10, y: 5)
+                .animation(.easeOut(duration: 0.15), value: hovered)
+            VStack(spacing: 2) {
+                Text(stat.artist)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                Text(L10n.plural("shell.search.artistPlays", stat.plays))
+                    .font(.system(size: 10))
+                    .foregroundColor(.primary.opacity(0.5))
+                    .lineLimit(1)
+            }
+            .frame(width: 118)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+    }
+
+    @ViewBuilder
+    private var cover: some View {
+        if let s = stat.artworkURL, let url = URL(string: s) {
+            CachedAsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let img): img.resizable().aspectRatio(contentMode: .fill)
+                default: placeholder
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 6)
+        } else {
+            placeholder
+        }
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            Color.primary.opacity(0.08)
+            Image(systemName: "person.fill")
+                .font(.system(size: 30, weight: .light))
+                .foregroundColor(.primary.opacity(0.3))
         }
     }
 }

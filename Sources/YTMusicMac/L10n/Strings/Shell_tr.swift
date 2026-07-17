@@ -46,6 +46,10 @@ let shellTR: [String: String] = [
     "shell.search.emptyHint": "%@ aramak için yaz",
     "shell.search.suggestions": "ÖNERİLER",
     "shell.search.recent": "SON ARAMALAR",
+    "shell.search.topArtists": "En çok dinlediğin sanatçılar",
+    "shell.search.topArtists.caption": "Tüm zamanların favorileri, doğrudan sayfalarına",
+    "shell.search.artistPlays.one": "%d çalma",
+    "shell.search.artistPlays.other": "%d çalma",
     "shell.search.noResultsFor": "“%@” için sonuç yok",
 
     // Sidebar

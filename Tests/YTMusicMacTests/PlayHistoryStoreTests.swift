@@ -101,6 +101,44 @@ final class PlayHistoryStoreTests: XCTestCase {
         XCTAssertTrue(store.tracksPlayedBetween(start: t, end: t).isEmpty)
     }
 
+    func testRecentlyPlayedIsNewestFirst() {
+        record("A", "Oldest", daysAgo: 10)
+        record("B", "Newest", daysAgo: 1)
+        record("C", "Middle", daysAgo: 5)
+
+        XCTAssertEqual(store.recentlyPlayed().map(\.title), ["Newest", "Middle", "Oldest"])
+    }
+
+    /// The distinguishing behaviour vs. topTracks: a track played once an hour
+    /// ago outranks one played fifty times last year.
+    func testRecentlyPlayedIgnoresPlayCount() {
+        record("Loved", "Anthem", daysAgo: 30)
+        record("Loved", "Anthem", daysAgo: 30)
+        record("Loved", "Anthem", daysAgo: 30)
+        record("Passing", "Whim", daysAgo: 1)
+
+        XCTAssertEqual(store.recentlyPlayed().map(\.title), ["Whim", "Anthem"])
+        XCTAssertEqual(store.topTracks(since: epoch.addingTimeInterval(-60 * 86_400)).map(\.title),
+                       ["Anthem", "Whim"])
+    }
+
+    func testRecentlyPlayedCollapsesRepeatsOntoTheirLatestPlay() {
+        record("A", "Repeat", daysAgo: 9)
+        record("B", "Other", daysAgo: 5)
+        record("A", "Repeat", daysAgo: 1)
+
+        let recent = store.recentlyPlayed()
+        // One row per track, ranked by its most recent play — so the repeat
+        // climbs above "Other" rather than appearing twice.
+        XCTAssertEqual(recent.map(\.title), ["Repeat", "Other"])
+        XCTAssertEqual(recent.first?.plays, 2)
+    }
+
+    func testRecentlyPlayedRespectsTheLimit() {
+        for i in 0..<5 { record("A", "Track\(i)", daysAgo: Double(i)) }
+        XCTAssertEqual(store.recentlyPlayed(limit: 2).map(\.title), ["Track0", "Track1"])
+    }
+
     func testForgottenFavoritesNeedsBothAgeAndPlayCount() {
         // Played a lot, long ago → forgotten favourite.
         for _ in 0..<4 { record("Loved", "Anthem", daysAgo: 200) }

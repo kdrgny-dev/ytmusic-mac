@@ -141,6 +141,8 @@ let modelEN: [String: String] = [
     "vm.home.yearAgo.subtitle": "What you were playing on this day last year",
     "vm.home.sixMonths.title": "Six months ago",
     "vm.home.sixMonths.subtitle": "The month you had on repeat half a year back",
+    "vm.search.recentlyPlayed.title": "Recently played",
+    "vm.search.recentlyPlayed.subtitle": "Pick up where you left off",
     "vm.home.forgotten.title": "Forgotten favourites",
     "vm.home.forgotten.subtitle": "You played these a lot, then stopped",
     "vm.toast.mixQueued.one": "Playing %d track",

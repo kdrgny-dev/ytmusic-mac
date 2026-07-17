@@ -256,6 +256,22 @@ final class PlayHistoryStore {
         return rows.map(Self.trackStat)
     }
 
+    /// The last distinct tracks you played, newest first. `topTracks` groups the
+    /// same way but ranks by play count, which answers "what do you love", not
+    /// "what were you just listening to".
+    func recentlyPlayed(limit: Int = 20) -> [TrackStat] {
+        let rows = read("""
+            SELECT title, artist, MIN(video_id) AS video_id,
+                   COUNT(*) AS plays, SUM(played_ms) AS listened,
+                   MAX(started_at) AS last_at, artwork_url
+            FROM plays
+            WHERE title <> '' AND video_id <> ''
+            GROUP BY title, artist
+            ORDER BY last_at DESC LIMIT ?;
+            """, [.int(Int64(limit))])
+        return rows.map(Self.trackStat)
+    }
+
     /// Tracks you played a lot once and haven't touched since `playedBefore`.
     /// `minPlays` is what separates a forgotten favourite from something you
     /// skipped past once a year ago.

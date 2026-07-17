@@ -138,6 +138,8 @@ let modelTR: [String: String] = [
     "vm.home.yearAgo.subtitle": "Geçen yıl bugün neler dinliyordun",
     "vm.home.sixMonths.title": "Altı ay önce",
     "vm.home.sixMonths.subtitle": "Yarım yıl önce tekrar tekrar çaldığın ay",
+    "vm.search.recentlyPlayed.title": "Son çaldıkların",
+    "vm.search.recentlyPlayed.subtitle": "Kaldığın yerden devam et",
     "vm.home.forgotten.title": "Unuttuğun favoriler",
     "vm.home.forgotten.subtitle": "Bir zamanlar çok çaldın, sonra bıraktın",
     "vm.toast.mixQueued.one": "%d parça çalınıyor",

@@ -260,7 +260,7 @@ final class NativeShellViewModel: ObservableObject {
         case .radio: Task { await loadRadio() }
         case .history: Task { await loadHistory() }
         case .statistics: loadStatistics()
-        case .search: break
+        case .search: Task { await loadSearchDiscovery() }
         case .playlist(let p):
             selectedPlaylist = p
             Task { await loadTracks(for: p) }
@@ -1440,6 +1440,40 @@ final class NativeShellViewModel: ObservableObject {
 
     @Published private(set) var personalShelves: [PersonalShelf] = []
     @Published private(set) var dailyStations: [RadioStation] = []
+
+    /// What the search page shows before you've typed anything. Both come from
+    /// local SQLite, so the page is populated on the first frame with no
+    /// network — which is the whole point: search opens instantly.
+    @Published private(set) var searchTopArtists: [ArtistStat] = []
+    /// Packaged as a PersonalShelf purely so PersonalShelfRow renders it —
+    /// cards, play-all and the context menu all come for free.
+    @Published private(set) var searchRecentShelf: PersonalShelf?
+
+    /// Rebuilt on every visit to search, like `loadPersonalShelves`: reading
+    /// SQLite is cheap and these go stale as you listen.
+    private func loadSearchDiscovery() async {
+        guard Preferences.shared.historyEnabled, let store = PlayHistoryStore.shared else {
+            searchTopArtists = []
+            searchRecentShelf = nil
+            return
+        }
+
+        let now = Date()
+        let built = await Task.detached(priority: .userInitiated) { () -> ([ArtistStat], [TrackStat]) in
+            let allTime = StatsRange.all.start(from: now)
+            return (store.topArtists(since: allTime, limit: 12),
+                    store.recentlyPlayed(limit: 20))
+        }.value
+
+        searchTopArtists = built.0
+        let recent = built.1
+        searchRecentShelf = recent.isEmpty ? nil
+            : PersonalShelf(id: "searchRecent",
+                            title: L10n.t("vm.search.recentlyPlayed.title"),
+                            subtitle: L10n.t("vm.search.recentlyPlayed.subtitle"),
+                            icon: "clock.fill",
+                            tracks: recent)
+    }
 
     /// Rebuilt on every Home load rather than cached with `homeLoaded`: these
     /// come from local SQLite (cheap) and go stale as the user listens.
