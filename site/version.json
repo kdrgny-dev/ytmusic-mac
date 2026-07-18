@@ -1,5 +1,5 @@
 {
-  "version": "0.7.0",
-  "notes": "Search now opens with something in it: your recent queries, the artists you play most, and what you played last — built from your local history, so it is on screen instantly.",
+  "version": "0.7.1",
+  "notes": "Shuffle now takes hold from the very first Next instead of a few tracks in, radio no longer skips through songs on its own, and Settings opens the real window from the app menu.",
   "dmg": "https://github.com/kdrgny-dev/ytmusic-mac/releases/latest/download/YTMusic.dmg"
 }
