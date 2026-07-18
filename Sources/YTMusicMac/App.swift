@@ -1,17 +1,6 @@
 import SwiftUI
 import AppKit
 
-@main
-struct YTMusicApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-
-    var body: some Scene {
-        // All real windows are NSWindow-managed. Settings is a placeholder
-        // to satisfy SwiftUI's "App needs at least one Scene" requirement.
-        Settings { EmptyView() }
-    }
-}
-
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Held onto so the monitor stays alive for the app's lifetime.
     /// Apple's docs say to keep the returned token — otherwise the

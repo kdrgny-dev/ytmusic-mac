@@ -962,10 +962,17 @@ final class NativeShellViewModel: ObservableObject {
     /// song lives at the well-known `RDAMVM<videoId>` playlist, so we just
     /// navigate the WebView to /watch?v=<id>&list=RDAMVM<id> — YT fills the
     /// queue with an auto-generated mix and starts playing.
+    static func radioURLString(seedVideoId: String) -> String {
+        "https://music.youtube.com/watch?v=\(seedVideoId)&list=RDAMVM\(seedVideoId)"
+    }
+
     func startRadio(_ t: TrackSummary) {
-        let urlStr = "https://music.youtube.com/watch?v=\(t.id)&list=RDAMVM\(t.id)"
-        guard let url = URL(string: urlStr) else { return }
+        guard let url = URL(string: Self.radioURLString(seedVideoId: t.id)) else { return }
         nowPlayingCollectionId = nil
+        // A leftover manual queue would hijack the radio the moment the seed
+        // track ends (handleTrackEnded prefers ownQueue).
+        ownQueue.removeAll()
+        PrefBridge.shared.armRadioSeedGuard(seedVideoId: t.id)
         WebViewHolder.shared.webView?.load(URLRequest(url: url))
         showToast(L10n.t("vm.toast.radioStarting"))
     }

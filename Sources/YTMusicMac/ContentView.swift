@@ -146,6 +146,12 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
 
     // MARK: - WKNavigationDelegate / WKUIDelegate
 
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        // Earliest point the new document exists — re-arm before anything can
+        // load a video and trip the shuffle keeper.
+        PrefBridge.shared.reapplyRadioSeedGuard(for: webView.url)
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // Re-apply user preferences after every page load so the JS bridge
         // reflects current toggle state regardless of what the bootstrap
@@ -154,6 +160,8 @@ final class WebViewHolder: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         // Keep YT's web UI hidden under the SwiftUI shell after reloads when
         // Native Mode is on (otherwise it would flash back in on navigation).
         FeatureBridge.shared.set("hideYTApp", enabled: prefs.nativeUIMode)
+        // Must precede setAlwaysShuffle — that call schedules an ensureShuffle.
+        PrefBridge.shared.reapplyRadioSeedGuard(for: webView.url, done: true)
         PrefBridge.shared.setAlwaysShuffle(prefs.alwaysShuffle)
         PrefBridge.shared.setCrossfade(enabled: prefs.crossfadeEnabled, duration: prefs.crossfadeDuration)
         ThemeBridge.shared.apply(prefs.theme)

@@ -200,6 +200,41 @@ final class PrefBridge {
         }
     }
 
+    /// Arm the radio seed guard. The bootstrap script is re-injected on every
+    /// navigation, so the armed state has to live here and be re-applied on
+    /// the page the radio navigation actually lands on (see `reapplyRadioSeedGuard`).
+    /// Records which radio we're navigating to. Nothing is injected here — the
+    /// page we're leaving is about to be torn down, and marking it as a radio
+    /// page would strand its keeper if the navigation failed.
+    func armRadioSeedGuard(seedVideoId: String) {
+        pendingRadioSeed = seedVideoId
+        radioGuardArmedAt = Date()
+    }
+
+    /// Re-apply on the page the radio navigation actually landed on. Any other
+    /// destination cancels the pending guard — otherwise opening a playlist
+    /// right after starting a radio would swallow its shuffle too.
+    func reapplyRadioSeedGuard(for url: URL?, done: Bool = false) {
+        guard let seed = pendingRadioSeed, let armed = radioGuardArmedAt else { return }
+        guard Date().timeIntervalSince(armed) < Self.radioGuardWindow,
+              url?.absoluteString.contains("list=RDAMVM\(seed)") == true else {
+            clearPendingRadioSeed()
+            return
+        }
+        run("window.__ytmArmShuffleGuard && window.__ytmArmShuffleGuard()")
+        if done { clearPendingRadioSeed() }
+    }
+
+    private func clearPendingRadioSeed() {
+        pendingRadioSeed = nil
+        radioGuardArmedAt = nil
+    }
+
+    /// How long an armed guard stays valid across navigation callbacks.
+    static let radioGuardWindow: TimeInterval = 20
+    private var radioGuardArmedAt: Date?
+    private var pendingRadioSeed: String?
+
     func setCrossfade(enabled: Bool, duration: Double) {
         let js = "window.__ytmSetFade && window.__ytmSetFade(\(enabled), \(duration))"
         DispatchQueue.main.async {

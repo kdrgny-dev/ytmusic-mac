@@ -308,7 +308,7 @@ enum PlayerBridge {
         // Shuffle keeper: re-enable shuffle every time a new track starts
         // unless the user explicitly disabled it recently (see ensureShuffle).
         v.addEventListener('loadedmetadata', function() {
-          setTimeout(ensureShuffle, 400);
+          setTimeout(function() { ensureShuffle('loadedmetadata'); }, 400);
         });
         sendSoon();
         return true;
@@ -325,8 +325,21 @@ enum PlayerBridge {
 
       window.__ytmSetAlwaysShuffle = function(on) {
         window.__ytmAlwaysShuffle = !!on;
-        if (on) setTimeout(ensureShuffle, 200);
+        if (on) setTimeout(function() { ensureShuffle('setAlwaysShuffle'); }, 200);
       };
+
+      // A radio queue (RDAMVM…) must start on the track the user seeded it
+      // with, but YT resets shuffle when the queue opens and the keeper would
+      // switch it back on — which reshuffles the queue and skips the seed.
+      // Armed by native right before/after the radio navigation; released
+      // once the seed hands over to the next track.
+      // A radio (RDAMVM…) queue is already an endless shuffled mix, and
+      // toggling shuffle mid-queue makes YT re-draw it — which skips whatever
+      // is playing. So the keeper stays out of radio pages entirely. Native
+      // sets this on the page the radio navigation lands on; it dies with the
+      // document, so any other navigation clears it for free.
+      window.__ytmRadioPage = window.__ytmRadioPage || false;
+      window.__ytmArmShuffleGuard = function() { window.__ytmRadioPage = true; };
 
       function findShuffleBtn() {
         return q('ytmusic-player-bar tp-yt-paper-icon-button.shuffle')
@@ -354,20 +367,49 @@ enum PlayerBridge {
         // Capture phase so we record the click before YT's own handler
         // toggles aria-pressed.
         btn.addEventListener('click', function() {
+          // Our own ensureShuffle click lands here too; counting it would
+          // arm the manual-toggle grace window against ourselves.
+          if (window.__ytmSelfClickingShuffle) return;
           window.__ytmUserToggledShuffleAt = Date.now();
         }, true);
       }
-      function ensureShuffle() {
-        try {
-          if (!window.__ytmAlwaysShuffle) return;
-          // Respect a manual toggle for 30s so user can listen sequentially.
-          if (Date.now() - window.__ytmUserToggledShuffleAt < 30000) return;
-          attachShuffleClickListener();
-          if (shuffleIsOn()) return;
-          var btn = findShuffleBtn();
-          if (!btn) return;
-          btn.click();
-        } catch (e) {}
+      // Why does this retry? A click on YT's shuffle button silently no-ops
+      // while the player is still booting — the button is in the DOM long
+      // before it does anything. Clicking once and trusting it left shuffle
+      // off for ~10s after opening a track, so the first Next played in order.
+      // Verify against shuffle-on and keep trying until it actually sticks.
+      // Turning shuffle on makes YT re-draw the queue, which skips whatever is
+      // playing. YT only resets shuffle when a NEW queue opens, and in this app
+      // a new queue means a new document — so settle it once per page load and
+      // then stay out of the way. Fighting every later reset costs a skipped
+      // track each time.
+      window.__ytmShuffleSettled = window.__ytmShuffleSettled || false;
+      var __ytmShuffleRun = 0;
+      function ensureShuffle(why, deadline) {
+        var run = ++__ytmShuffleRun;   // newest call wins; no duelling loops
+        var until = deadline || (Date.now() + 20000);
+        (function attempt() {
+          try {
+            if (run !== __ytmShuffleRun) return;
+            if (window.__ytmShuffleSettled) return;
+            if (!window.__ytmAlwaysShuffle) return;
+            if (window.__ytmRadioPage) return;
+            // Respect a manual toggle for 30s so user can listen sequentially.
+            if (Date.now() - window.__ytmUserToggledShuffleAt < 30000) return;
+            attachShuffleClickListener();
+            // A click no-ops while YT's player is still booting, so verify
+            // against shuffle-on and retry until it actually takes.
+            if (shuffleIsOn()) { window.__ytmShuffleSettled = true; return; }
+            var btn = findShuffleBtn();
+            if (btn) {
+              window.__ytmSelfClickingShuffle = true;
+              try { btn.click(); } finally {
+                setTimeout(function() { window.__ytmSelfClickingShuffle = false; }, 0);
+              }
+            }
+            if (Date.now() < until) setTimeout(attempt, 400);
+          } catch (e) {}
+        })();
       }
       // One-shot attach attempt right after the bridge installs.
       setTimeout(attachShuffleClickListener, 1500);
@@ -471,6 +513,7 @@ enum PlayerBridge {
             var sb = findShuffleBtn();
             if (sb) sb.click();
             window.__ytmAlwaysShuffle = !wasOn;
+            window.__ytmShuffleSettled = false;
             window.__ytmUserToggledShuffleAt = Date.now();
             setTimeout(send, 200); // re-read shuffle-on after YT updates it
             return;
@@ -480,10 +523,11 @@ enum PlayerBridge {
             // buttons so Play = in order, Shuffle = shuffled).
             var want = (cmd === 'shuffleon');
             window.__ytmAlwaysShuffle = want;
+            window.__ytmShuffleSettled = false;
             window.__ytmUserToggledShuffleAt = want ? 0 : Date.now();
             var sbtn = findShuffleBtn();
             if (sbtn && shuffleIsOn() !== want) sbtn.click();
-            if (want) setTimeout(ensureShuffle, 300);
+            if (want) setTimeout(function() { ensureShuffle('cmd:shuffleon'); }, 300);
             setTimeout(send, 250);
             return;
           }

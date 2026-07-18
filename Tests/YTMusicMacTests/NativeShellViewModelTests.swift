@@ -59,6 +59,22 @@ final class NativeShellViewModelTests: XCTestCase {
         XCTAssertTrue(vm.ownQueue.isEmpty)
     }
 
+    // MARK: - Radio
+
+    func testRadioURLSeedsTheRDAMVMPlaylist() {
+        XCTAssertEqual(NativeShellViewModel.radioURLString(seedVideoId: "abc123"),
+                       "https://music.youtube.com/watch?v=abc123&list=RDAMVMabc123")
+    }
+
+    func testStartRadioClearsLeftoverOwnQueue() {
+        vm.addToQueue(videoId: "a", title: "A")
+        vm.addToQueue(videoId: "b", title: "B")
+        vm.startRadio(NativeShellViewModel.TrackSummary(
+            id: "seed", title: "Seed", artist: "X", duration: nil, thumbnailURL: nil))
+        XCTAssertTrue(vm.ownQueue.isEmpty,
+                      "a stale manual queue would hijack the radio when the seed ends")
+    }
+
     // MARK: - Navigation history
 
     func testOpenPlaylistPushesPreviousSectionOntoBackStack() {
