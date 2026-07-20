@@ -1,5 +1,5 @@
 {
-  "version": "0.7.1",
-  "notes": "Shuffle now takes hold from the very first Next instead of a few tracks in, radio no longer skips through songs on its own, and Settings opens the real window from the app menu.",
+  "version": "0.7.2",
+  "notes": "Clicking a song further down a radio queue now stays on it, instead of playing a few seconds and jumping to another track.",
   "dmg": "https://github.com/kdrgny-dev/ytmusic-mac/releases/latest/download/YTMusic.dmg"
 }
