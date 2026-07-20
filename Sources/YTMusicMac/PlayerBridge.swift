@@ -385,6 +385,12 @@ enum PlayerBridge {
       // track each time.
       window.__ytmShuffleSettled = window.__ytmShuffleSettled || false;
       var __ytmShuffleRun = 0;
+      // Jumping to a queue row inside a radio loads a new document, so the
+      // native-armed flag above is gone by the time the keeper runs there.
+      // The URL survives, so read the radio-ness off it every time.
+      function onRadioPage() {
+        try { return /[?&]list=RD/.test(location.href); } catch (e) { return false; }
+      }
       function ensureShuffle(why, deadline) {
         var run = ++__ytmShuffleRun;   // newest call wins; no duelling loops
         var until = deadline || (Date.now() + 20000);
@@ -393,7 +399,7 @@ enum PlayerBridge {
             if (run !== __ytmShuffleRun) return;
             if (window.__ytmShuffleSettled) return;
             if (!window.__ytmAlwaysShuffle) return;
-            if (window.__ytmRadioPage) return;
+            if (window.__ytmRadioPage || onRadioPage()) return;
             // Respect a manual toggle for 30s so user can listen sequentially.
             if (Date.now() - window.__ytmUserToggledShuffleAt < 30000) return;
             attachShuffleClickListener();

@@ -17,7 +17,8 @@ const source = swift.slice(start, end + '\n      }'.length);
 
 /// Builds an isolated run of the extracted code with a controllable world.
 function harness({ clicksNeeded = 1, buttonAfter = 0, alwaysShuffle = true,
-                   radioPage = false, graceAgo = 999999 } = {}) {
+                   radioPage = false, graceAgo = 999999,
+                   href = 'https://music.youtube.com/watch?v=abc' } = {}) {
   const state = { on: false, clicks: 0, now: 0 };
   let timers = [];
 
@@ -30,6 +31,7 @@ function harness({ clicksNeeded = 1, buttonAfter = 0, alwaysShuffle = true,
   };
   const ctx = {
     window: win,
+    location: { href },
     Date: { now: () => state.now },
     setTimeout: (fn, ms) => timers.push({ at: state.now + ms, fn }),
     shuffleDiag: () => {},
@@ -107,6 +109,18 @@ const tests = {
     // Toggling shuffle makes YT re-draw the queue, which skips the playing
     // track. A radio is already a shuffled mix, so the keeper stays out.
     const h = harness({ radioPage: true });
+    h.call('loadedmetadata');
+    h.advance(30000);
+    assert.strictEqual(h.state.clicks, 0, 'radio must never be reshuffled');
+  },
+
+  'recognises a radio page from the URL, not just the armed guard'() {
+    // Jumping to a queue row inside a radio loads a new document, so the
+    // native-armed __ytmRadioPage flag is gone — the URL is the only thing
+    // left that still says "radio". Without this the keeper reshuffled the
+    // mix ~3s in and skipped the track the user just clicked.
+    const h = harness({ radioPage: false,
+                        href: 'https://music.youtube.com/watch?v=xyz&list=RDAMVMabc' });
     h.call('loadedmetadata');
     h.advance(30000);
     assert.strictEqual(h.state.clicks, 0, 'radio must never be reshuffled');
