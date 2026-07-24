@@ -1,5 +1,5 @@
 {
-  "version": "0.7.2",
-  "notes": "Clicking a song further down a radio queue now stays on it, instead of playing a few seconds and jumping to another track.",
+  "version": "0.8.0",
+  "notes": "The radio page now groups your listening into genre rows (built from Last.fm tags) plus a by-decade row, and refresh finally does something: it rerolls the picks instead of rebuilding the same page.",
   "dmg": "https://github.com/kdrgny-dev/ytmusic-mac/releases/latest/download/YTMusic.dmg"
 }
