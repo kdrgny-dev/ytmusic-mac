@@ -1656,7 +1656,18 @@ final class NativeShellViewModel: ObservableObject {
         Task { await loadRadio() }
     }
 
-    func reloadRadio() { Task { await loadRadio() } }
+    /// Refresh rerolls rather than refetches. Everything the page shows is
+    /// either local or already cached, so the only thing a user can actually
+    /// want from this button is different music — the previous behaviour
+    /// rebuilt the identical page, since the discovery rotation is fixed per
+    /// calendar day and the genre chips were never refetched.
+    func reloadRadio() {
+        radioReroll += 1
+        Task { await loadRadio() }
+    }
+
+    /// Bumped by the refresh button; feeds the deterministic card rotation.
+    private var radioReroll = 0
 
     /// Builds the radio page.
     ///
@@ -1670,11 +1681,15 @@ final class NativeShellViewModel: ObservableObject {
         defer { radioLoading = false }
 
         let personal = await personalRadioSections()
+        let taste = await tasteSections()
         let mixes = await ytMixSection()
         await ensureGenresLoaded()
 
-        radioSections = (personal + [mixes].compactMap { $0 }).filter { !$0.isEmpty }
+        radioSections = (personal + taste + [mixes].compactMap { $0 }).filter { !$0.isEmpty }
         radioNeedsHistory = personal.isEmpty
+        // Tags for artists we haven't looked up yet land after the page is
+        // already usable, then the genre rows appear.
+        backfillArtistTags()
         // Genre chips render straight from `genreSections`, so the page still
         // has something on it even when every section came back empty.
         radioError = radioSections.isEmpty && genreSections.isEmpty
@@ -1725,6 +1740,99 @@ final class NativeShellViewModel: ObservableObject {
                                          stations: favourites))
         }
         return sections
+    }
+
+    /// How many artists deep we go for genre grouping. Wider than any row needs
+    /// so a genre you listen to occasionally can still gather three artists.
+    private static let tasteArtistDepth = 60
+
+    /// Genre and decade rows, built from history plus cached Last.fm tags.
+    /// Renders from the cache only — nothing here waits on the network, so the
+    /// page appears at local-read speed and fills in afterwards.
+    private func tasteSections() async -> [RadioSection] {
+        guard Preferences.shared.historyEnabled, let store = PlayHistoryStore.shared else { return [] }
+        let depth = Self.tasteArtistDepth
+        let reroll = radioReroll
+        let now = Date()
+
+        return await Task.detached(priority: .userInitiated) {
+            let seeds = store.topTrackPerArtist(since: StatsRange.all.start(from: now), limit: depth)
+            guard !seeds.isEmpty else { return [] }
+            let tags = store.tags(for: seeds.map(\.artist))
+            guard !tags.isEmpty else { return [] }
+            return RadioSectionsBuilder.build(topTrackPerArtist: seeds, tags: tags,
+                                              reroll: reroll, on: now)
+        }.value
+    }
+
+    private var tagBackfillTask: Task<Void, Never>?
+
+    /// Fetches tags for artists we've never looked up, then rebuilds the rows.
+    ///
+    /// Bounded concurrency: a fresh install has 60 unknown artists and firing
+    /// them all at once is both rude to Last.fm and pointless — the page is
+    /// already on screen. Failures write nothing, so a network blip is retried
+    /// on the next visit instead of being cached as "this artist has no genre".
+    private func backfillArtistTags() {
+        guard Preferences.shared.historyEnabled,
+              let store = PlayHistoryStore.shared,
+              lastfm.isConfigured,
+              tagBackfillTask == nil else { return }
+
+        let depth = Self.tasteArtistDepth
+        let client = lastfm
+        tagBackfillTask = Task { @MainActor [weak self] in
+            defer { self?.tagBackfillTask = nil }
+
+            let missing = await Task.detached(priority: .utility) { () -> [String] in
+                let seeds = store.topTrackPerArtist(since: StatsRange.all.start(from: Date()),
+                                                    limit: depth)
+                return store.artistsMissingTags(from: seeds.map(\.artist).filter { !$0.isEmpty })
+            }.value
+            guard !missing.isEmpty, !Task.isCancelled else { return }
+
+            var fetched = 0
+            for batch in stride(from: 0, to: missing.count, by: 5).map({
+                Array(missing[$0..<min($0 + 5, missing.count)])
+            }) {
+                guard !Task.isCancelled else { return }
+                await withTaskGroup(of: Bool.self) { group in
+                    for artist in batch {
+                        group.addTask {
+                            // YT credits every featured artist in one string, so
+                            // the full byline often matches nothing on Last.fm
+                            // and the lead artist is the only name it knows.
+                            var digest = TagTaxonomy.Digest()
+                            for candidate in LastfmArtistQuery.candidates(for: artist) {
+                                digest = TagTaxonomy.digest(from: await client.topTags(artist: candidate))
+                                if !digest.genres.isEmpty || !digest.decades.isEmpty { break }
+                            }
+                            // Cached under the played name either way: an empty
+                            // digest is what stops us asking again every visit.
+                            // A failed request is indistinguishable from an
+                            // unknown artist here, so an offline first run costs
+                            // one extra visit rather than a permanent blank.
+                            store.saveTags(artist: artist, digest: digest)
+                            return !digest.genres.isEmpty || !digest.decades.isEmpty
+                        }
+                    }
+                    for await didFind in group where didFind { fetched += 1 }
+                }
+            }
+            guard fetched > 0, !Task.isCancelled else { return }
+            // Rebuild only the taste rows; re-running loadRadio would refetch
+            // YT's mixes for nothing.
+            let rebuilt = await self?.tasteSections() ?? []
+            guard let self, !Task.isCancelled else { return }
+            let others = self.radioSections.filter { !Self.isTasteSection($0.id) }
+            let mixes = others.filter { $0.id == "ytMixes" }
+            let personal = others.filter { $0.id != "ytMixes" }
+            self.radioSections = (personal + rebuilt + mixes).filter { !$0.isEmpty }
+        }
+    }
+
+    private static func isTasteSection(_ id: String) -> Bool {
+        id.hasPrefix("genre:") || id == "decades"
     }
 
     /// YT's own mixes, lifted out of the Home shelves. A mix card's id is the

@@ -96,6 +96,25 @@ final class LastfmClient {
         return Self.arrayValue(arr).compactMap { $0["name"] as? String }
     }
 
+    /// The artist's top tags — the app's only source of genre, since YT Music
+    /// exposes none. `count` is Last.fm's 0-100 relative weight, which is what
+    /// lets `TagTaxonomy` throw away tags only one person applied.
+    func topTags(artist: String) async -> [(name: String, count: Int)] {
+        let json = await get(["method": "artist.gettoptags", "artist": artist,
+                              "autocorrect": "1"])
+        let arr = (json?["toptags"] as? [String: Any])?["tag"]
+        return Self.parseTags(arr)
+    }
+
+    /// Split out so it can be tested against a captured response without a
+    /// network round trip.
+    static func parseTags(_ any: Any?) -> [(name: String, count: Int)] {
+        arrayValue(any).compactMap { item in
+            guard let name = item["name"] as? String, !name.isEmpty else { return nil }
+            return (name: name, count: Int(doubleValue(item["count"])))
+        }
+    }
+
     // MARK: - Transport
 
     private func get(_ params: [String: String]) async -> [String: Any]? {

@@ -145,6 +145,21 @@ final class PlayHistoryStore {
             try db.execute("ALTER TABLE plays ADD COLUMN artwork_url TEXT;")
             db.userVersion = 2
         }
+        if db.userVersion < 3 {
+            // Last.fm genre tags, cached per artist. YT Music exposes no genre
+            // at all, so the radio page's genre rows have nowhere else to come
+            // from — and refetching on every page open would mean dozens of
+            // requests for data that changes maybe once a year.
+            try db.execute("""
+                CREATE TABLE IF NOT EXISTS artist_tags (
+                  artist     TEXT PRIMARY KEY,
+                  genres     TEXT,
+                  decades    TEXT,
+                  fetched_at INTEGER NOT NULL DEFAULT 0
+                );
+                """)
+            db.userVersion = 3
+        }
     }
 
     // MARK: - Writing
@@ -387,6 +402,73 @@ final class PlayHistoryStore {
 
     /// Synchronous read on the serial queue so callers see every write that
     /// `record(_:)` has already enqueued.
+    // MARK: - Artist tag cache
+
+    /// Cached Last.fm genres/decades for the artists asked about. Artists we've
+    /// never looked up are absent from the result; artists Last.fm didn't know
+    /// come back with an empty digest, which is the difference that stops us
+    /// asking about them again.
+    func tags(for artists: [String]) -> [String: TagTaxonomy.Digest] {
+        guard !artists.isEmpty else { return [:] }
+        let placeholders = Array(repeating: "?", count: artists.count).joined(separator: ",")
+        let rows = read("SELECT artist, genres, decades FROM artist_tags WHERE artist IN (\(placeholders));",
+                        artists.map { SQLValue.text($0) })
+        var out: [String: TagTaxonomy.Digest] = [:]
+        for row in rows {
+            guard let artist = row["artist"]?.stringValue else { continue }
+            out[artist] = TagTaxonomy.Digest(
+                genres: Self.decodeList(row["genres"]?.stringValue) ?? [],
+                decades: Self.decodeList(row["decades"]?.stringValue) ?? [])
+        }
+        return out
+    }
+
+    func hasTags(for artist: String) -> Bool {
+        !read("SELECT 1 FROM artist_tags WHERE artist = ? LIMIT 1;", [.text(artist)]).isEmpty
+    }
+
+    /// Which of these artists we still have to ask Last.fm about.
+    func artistsMissingTags(from artists: [String]) -> [String] {
+        guard !artists.isEmpty else { return [] }
+        let known = Set(tags(for: artists).keys)
+        return artists.filter { !known.contains($0) }
+    }
+
+    /// Synchronous, unlike `record(_:)`: the caller is a background task that
+    /// wants the write visible to its own next read.
+    func saveTags(artist: String, digest: TagTaxonomy.Digest) {
+        guard !artist.isEmpty else { return }
+        queue.sync { [db] in
+            do {
+                try db.run("""
+                    INSERT INTO artist_tags (artist, genres, decades, fetched_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(artist) DO UPDATE SET
+                      genres = excluded.genres,
+                      decades = excluded.decades,
+                      fetched_at = excluded.fetched_at;
+                    """, [
+                        .text(artist),
+                        .text(Self.encodeList(digest.genres)),
+                        .text(Self.encodeList(digest.decades)),
+                        .int(Int64(Date().timeIntervalSince1970))
+                    ])
+            } catch {
+                NSLog("[history] tag write failed: \(error)")
+            }
+        }
+    }
+
+    private static func encodeList<T: Encodable>(_ list: [T]) -> String {
+        guard let data = try? JSONEncoder().encode(list) else { return "[]" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private static func decodeList<T: Decodable>(_ json: String?) -> [T]? {
+        guard let json, let data = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode([T].self, from: data)
+    }
+
     private func read(_ sql: String, _ params: [SQLValue]) -> [SQLRow] {
         queue.sync { [db] in
             do { return try db.query(sql, params) }

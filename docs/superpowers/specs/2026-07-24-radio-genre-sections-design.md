@@ -179,6 +179,37 @@ that an empty result is cached rather than re-requested.
 response — the existing `LastfmClientTests` already does exactly this for
 similar-tracks, so it follows that pattern.
 
+## What a live probe changed
+
+The design above was validated against the real Last.fm API and a real 60-artist
+listening history before shipping. Three things only evidence could have shown:
+
+1. **"Acoustic" outranked every real genre** and would have taken the top row.
+   It describes how a track was recorded, not what kind of music it is, so it and
+   "Instrumental" were dropped from the whitelist.
+2. **A Turkish library barely tagged.** Eleven artists came back with nothing but
+   `["turkish", "Turkish Pop", "turkce pop"]`. "turkish" is a language and stays
+   noise, but "Turkish Pop" is a genre and was missing — adding it turned 10
+   artists into a row. `Minimal Techno`, `Dub`, `Singer-Songwriter` and
+   `indie folk` came from the same pass.
+3. **Last.fm knew nothing about 13 of the top 60 artists**, all of them YT
+   byline credits like "Oceanvs Orientalis ve Idil Mese". Retrying the lookup
+   with the lead artist recovered 9 of them. `ArtistName.lead(_:)` splits on
+   " ve " / " and " / "," but deliberately not "&", since "Santi & Tuğçe" is one
+   act's real name.
+
+Two duplicate-card bugs surfaced in the same probe and are fixed: the credit line
+and the solo credit ("Dedublüman ve Aleyna Tilki" next to "Dedublüman") counted
+as two artists, and so did a casing difference in YT's own metadata ("gripin" vs
+"Gripin"). Row dedup is now on the case-folded lead artist.
+
+Final live result: 50 of 60 artists tagged, five genre rows (Rock, Electronic,
+Pop, Alternative, Turkish Pop) and a four-card decade row. The ten artists still
+untagged carry only moods and country names, which is the correct outcome.
+
+`RadioTasteIntegrationTests` keeps this check runnable — it's skipped unless
+`YTM_LIVE_LASTFM=1`, so the ordinary suite stays offline.
+
 ## Out of scope
 
 - Tagging artists as they're played (`PlayTracker` hook). The cache built here is
